@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Type
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Header, Footer, Static
 from textual.binding import Binding
 from rich.console import Console
@@ -113,7 +113,7 @@ class ClaudeCodeMorph(App):
     def compose(self) -> ComposeResult:
         """Create initial UI layout."""
         yield Header(show_clock=True)
-        yield Horizontal(id="main-container")
+        yield Vertical(id="main-container")
         yield Footer()
         
     async def load_workspace_file(self, filename: str) -> None:
@@ -139,7 +139,7 @@ class ClaudeCodeMorph(App):
             
     async def load_workspace(self, config: dict) -> None:
         """Load a workspace configuration."""
-        container = self.query_one("#main-container", Horizontal)
+        container = self.query_one("#main-container", Vertical)
         
         # Clear existing panels
         await container.remove_children()
@@ -188,7 +188,7 @@ class ClaudeCodeMorph(App):
             panel.classes = "panel"
             
             # Add to layout
-            container = self.query_one("#main-container", Horizontal)
+            container = self.query_one("#main-container", Vertical)
             await container.mount(panel)
             
             # Store reference
@@ -237,7 +237,7 @@ class ClaudeCodeMorph(App):
                 new_panel.classes = "panel"
                 
                 # Add to layout
-                container = self.query_one("#main-container", Horizontal)
+                container = self.query_one("#main-container", Vertical)
                 await container.mount(new_panel)
                 
                 self.panels[panel_id] = new_panel

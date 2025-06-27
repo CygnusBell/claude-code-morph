@@ -4,8 +4,7 @@ import os
 from typing import Optional, Callable
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Center, Middle
-from textual.widgets import Static, TextArea, Select, Button, OptionList, Label
-from textual.widgets.option_list import Option
+from textual.widgets import Static, TextArea, Button, Label, RadioButton, RadioSet
 from textual.binding import Binding
 from textual.screen import ModalScreen
 from rich.panel import Panel
@@ -35,32 +34,23 @@ class PromptPanel(Static):
     """Panel for composing and optimizing prompts."""
     
     DEFAULT_CSS = """
-    ConfirmDialog {
-        align: center middle;
+    .controls {
+        height: 3;
+        margin: 1 0;
     }
     
-    ConfirmDialog > Center {
-        min-width: 40;
-        min-height: 11;
-        background: $surface;
-        border: solid $primary;
+    #style-set {
+        width: auto;
+        margin-right: 2;
     }
     
-    ConfirmDialog #dialog {
-        padding: 2;
-        width: 100%;
+    RadioButton {
+        width: auto;
+        margin: 0 1;
     }
     
-    ConfirmDialog #question {
-        text-align: center;
-        margin-bottom: 2;
-    }
-    
-    ConfirmDialog #buttons {
-        align: center middle;
-    }
-    
-    ConfirmDialog Button {
+    Button {
+        width: auto;
         margin: 0 1;
     }
     """
@@ -97,18 +87,14 @@ class PromptPanel(Static):
             self.prompt_input.styles.height = "50%"
             yield self.prompt_input
             
-            # Style selector
-            yield Static("Style:", classes="section-title")
-            self.style_select = OptionList(
-                *[Option(style, id=style) for style, _ in self.DEFAULT_STYLES],
-                id="style-select"
-            )
-            self.style_select.styles.height = 5
-            self.style_select.highlighted = 0  # Default to verbose
-            yield self.style_select
-                
-            # Buttons
-            with Horizontal(classes="buttons"):
+            # Style selector and buttons on same line
+            with Horizontal(classes="controls"):
+                # Style radio buttons
+                with RadioSet(id="style-set"):
+                    for style, _ in self.DEFAULT_STYLES:
+                        yield RadioButton(style.capitalize(), value=style)
+                    
+                # Action buttons
                 yield Button("Submit", variant="primary", id="submit-btn")
                 yield Button("Improve", variant="default", id="optimize-btn")
                 yield Button("Clear", variant="warning", id="clear-btn")
@@ -132,9 +118,9 @@ class PromptPanel(Static):
             self.optimize_prompt()
         elif event.key == "ctrl+l":
             self.clear_prompt()
-        elif event.key == "up" and event.ctrl:
+        elif event.key == "ctrl+up":
             self.navigate_history(-1)
-        elif event.key == "down" and event.ctrl:
+        elif event.key == "ctrl+down":
             self.navigate_history(1)
             
     def submit_prompt(self) -> None:
@@ -189,9 +175,9 @@ class PromptPanel(Static):
             self.app.notify("Please enter a prompt to optimize", severity="warning")
             return
             
-        # Get selected style from OptionList
-        selected_option = self.style_select.highlighted
-        style = list(dict(self.DEFAULT_STYLES).keys())[selected_option] if selected_option is not None else "verbose"
+        # Get selected style from RadioSet
+        style_set = self.query_one("#style-set", RadioSet)
+        style = style_set.value or "verbose"
         
         # Run optimization in background
         asyncio.create_task(self._optimize_prompt_async(prompt, style))
@@ -301,8 +287,9 @@ Output only the enhanced prompt, nothing else."""
         """Clear prompt area with confirmation."""
         # Check if there's any content to clear
         if self.prompt_input.text.strip():
-            # Show confirmation dialog
-            asyncio.create_task(self._confirm_clear())
+            # For simplicity, just clear with a notification
+            self.prompt_input.text = ""
+            self.app.notify("Prompt cleared", severity="information")
         else:
             self.app.notify("Nothing to clear", severity="information")
     
@@ -325,7 +312,8 @@ Output only the enhanced prompt, nothing else."""
                 self.dismiss(event.button.id == "yes")
         
         # Show dialog and wait for result
-        if await self.app.push_screen_wait(ConfirmDialog()):
+        result = await self.app.push_screen(ConfirmDialog(), wait_for_dismiss=False)
+        if await result:
             # User confirmed - clear the prompt
             self.prompt_input.text = ""
             self.app.notify("Prompt cleared", severity="information")
