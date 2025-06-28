@@ -5,7 +5,7 @@ import logging
 from typing import Optional, Callable
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Center, Middle
-from textual.widgets import Static, TextArea, Button, Label, RadioButton, RadioSet, Select, OptionList
+from textual.widgets import Static, TextArea, Button, Label, Select
 from textual.binding import Binding
 from textual.screen import ModalScreen
 from rich.panel import Panel
@@ -93,15 +93,10 @@ class PromptPanel(BasePanel):
         content-align: center middle;
     }
     
-    PromptPanel RadioSet {
-        width: auto;
+    PromptPanel Select {
+        width: 20;
         height: 3;
         margin-left: 1;
-        layout: horizontal;
-    }
-    
-    PromptPanel RadioButton {
-        margin: 0 1;
     }
     
     PromptPanel Button {
@@ -175,10 +170,14 @@ class PromptPanel(BasePanel):
                 with Horizontal(classes="style-controls"):
                     yield Static("Style: ", classes="style-label")
                     
-                    # Use RadioSet for style selection
-                    with RadioSet() as self.style_radioset:
-                        for i, (style, desc) in enumerate(self.DEFAULT_STYLES):
-                            yield RadioButton(style.capitalize(), value=(i == 0), id=f"style-{style}")
+                    # Use Select dropdown for style selection
+                    style_options = [(style.capitalize(), style) for style, _ in self.DEFAULT_STYLES]
+                    self.style_select = Select(
+                        options=style_options,
+                        value="verbose",
+                        id="style-select"
+                    )
+                    yield self.style_select
                         
                 # Action buttons on their own line
                 with Horizontal(classes="button-controls"):
@@ -270,15 +269,10 @@ class PromptPanel(BasePanel):
             self.app.notify("Please enter a prompt to optimize", severity="warning")
             return
             
-        # Get selected style from RadioSet
+        # Get selected style from Select dropdown
         style = "verbose"  # Default
-        if hasattr(self, 'style_radioset'):
-            # Find which radio button is selected
-            for i, (style_name, _) in enumerate(self.DEFAULT_STYLES):
-                radio = self.query_one(f"#style-{style_name}", RadioButton)
-                if radio.value:
-                    style = style_name
-                    break
+        if hasattr(self, 'style_select'):
+            style = self.style_select.value or "verbose"
         
         # Run optimization in background
         task = asyncio.create_task(self._optimize_prompt_async(prompt, style))
