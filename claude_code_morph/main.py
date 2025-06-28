@@ -86,8 +86,11 @@ class ClaudeCodeMorph(App):
         super().__init__()
         self.panels: Dict[str, object] = {}
         self.current_workspace: Optional[str] = None
-        self.panels_dir = Path(__file__).parent / "panels"
-        self.workspaces_dir = Path(__file__).parent / "workspaces"
+        
+        # Use morph source directory for internal files
+        self.morph_source = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent))
+        self.panels_dir = self.morph_source / "panels"
+        self.workspaces_dir = self.morph_source / "workspaces"
         
         # Ensure directories exist
         self.panels_dir.mkdir(exist_ok=True)

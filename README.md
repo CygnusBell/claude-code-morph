@@ -11,20 +11,53 @@ A modular, live-editable development environment powered by Claude CLI. This sel
 - **Workspace Management**: Save and load custom UI layouts
 - **Modular Architecture**: Easy to extend with new panels
 
+## Prerequisites
+
+- Python 3.8+
+- pip (Python package installer)
+- Claude CLI installed and configured (`claude` command available)
+- (Optional) API keys for prompt optimization:
+  - `ANTHROPIC_API_KEY` for Claude-based optimization
+  - `OPENAI_API_KEY` for GPT-based optimization
+
 ## Installation
 
-1. **Prerequisites**:
-   - Python 3.8+
-   - Claude CLI installed and configured (`claude` command available)
-   - (Optional) API keys for prompt optimization:
-     - `ANTHROPIC_API_KEY` for Claude-based optimization
-     - `OPENAI_API_KEY` for GPT-based optimization
+### Quick Install
+```bash
+# Clone and install
+git clone https://github.com/yourusername/claude-code-morph.git
+cd claude-code-morph
+pip install -e .
+
+# Run from anywhere
+morph
+```
+
+### Alternative Installation Methods
+```bash
+# If you only have pip3
+pip3 install -e .
+
+# Install without sudo (user install)
+pip install --user -e .
+
+# Using Python directly
+python -m pip install -e .
+```
 
 ## Usage
 
-### Quick Start (Recommended)
+### Global Command (After Installation)
+```bash
+# Launch in current directory
+morph
 
-The easiest way to run Claude Code Morph is using the launcher scripts that automatically handle virtual environment setup:
+# Launch in specific directory
+morph --cwd /path/to/project
+```
+
+### Legacy Launcher Scripts (No Installation Required)
+If you prefer not to install, you can still use the launcher scripts:
 
 **Linux/macOS:**
 ```bash
@@ -34,11 +67,6 @@ The easiest way to run Claude Code Morph is using the launcher scripts that auto
 **Windows:**
 ```cmd
 morph.bat
-```
-
-**Cross-platform (Python):**
-```bash
-python morph.py
 ```
 
 These launchers will:

@@ -1,0 +1,18 @@
+# Default workspace configuration for Claude Code Morph
+name: default
+layout:
+  # Top panel - Prompt Generator
+  - type: PromptPanel
+    id: prompt
+    params: {}
+      
+  # Bottom panel - Claude Terminal
+  - type: TerminalPanel
+    id: terminal
+    params: {}
+
+# Additional settings
+settings:
+  theme: dark
+  auto_save: true
+  hot_reload: true

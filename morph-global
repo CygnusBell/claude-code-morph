@@ -1,0 +1,12 @@
+#!/bin/bash
+# Global morph launcher that uses the venv installation
+
+# Get the directory where this script is located
+MORPH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Set environment variables
+export MORPH_SOURCE_DIR="$MORPH_ROOT/claude_code_morph"
+export MORPH_USER_CWD="$(pwd)"
+
+# Run morph using the venv's Python
+exec "$MORPH_ROOT/venv/bin/python" -m claude_code_morph.cli "$@"

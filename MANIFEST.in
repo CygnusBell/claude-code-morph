@@ -1,0 +1,9 @@
+# Include non-Python files in the package
+include README.md
+include requirements.txt
+include LICENSE
+recursive-include claude_code_morph/workspaces *.yaml
+recursive-include claude_code_morph/panels *.py
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude .DS_Store

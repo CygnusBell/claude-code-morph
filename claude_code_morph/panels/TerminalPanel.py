@@ -91,7 +91,7 @@ class TerminalPanel(BasePanel):
         # Check if "morph" appears in the prompt (case-insensitive)
         if 'morph' in prompt.lower():
             # Get the Claude Code Morph source directory
-            morph_dir = Path(__file__).parent.parent.absolute()
+            morph_dir = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute()
             
             # Add context to the prompt
             morph_context = f"\n\n[IMPORTANT: This is a 'morph' command. Please work on the Claude Code Morph source files located at {morph_dir}, NOT the current working directory. The user wants to modify the IDE itself.]"
@@ -115,9 +115,11 @@ class TerminalPanel(BasePanel):
             message_count = 0
             
             # Determine the working directory based on whether this is a morph command
-            morph_dir = str(Path(__file__).parent.parent.absolute())
+            morph_dir = str(Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute())
             is_morph_command = "[IMPORTANT: This is a 'morph' command" in prompt
-            working_dir = morph_dir if is_morph_command else os.getcwd()
+            # For morph commands, use morph source dir; otherwise use user's working dir
+            user_cwd = os.environ.get("MORPH_USER_CWD", os.getcwd())
+            working_dir = morph_dir if is_morph_command else user_cwd
             
             # Query Claude with streaming
             logging.info(f"Starting query with prompt: {prompt[:100]}...")
