@@ -1,15 +1,17 @@
 """Prompt Panel - Handles user input and prompt optimization."""
 
 import os
+import logging
 from typing import Optional, Callable
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Center, Middle
-from textual.widgets import Static, TextArea, Button, Label, RadioButton, RadioSet
+from textual.widgets import Static, TextArea, Button, Label, RadioButton, RadioSet, Select, OptionList
 from textual.binding import Binding
 from textual.screen import ModalScreen
 from rich.panel import Panel
 from rich.syntax import Syntax
 import asyncio
+from panels.BasePanel import BasePanel
 
 # Import AI libraries conditionally
 try:
@@ -30,28 +32,93 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-class PromptPanel(Static):
+class PromptPanel(BasePanel):
     """Panel for composing and optimizing prompts."""
     
-    DEFAULT_CSS = """
-    .controls {
+    BINDINGS = BasePanel.BINDINGS + [
+        Binding("cmd+a", "select_all_in_panel", "Select All", priority=True, show=False),
+    ]
+    
+    CSS = """
+    PromptPanel {
+        layout: vertical;
+        height: 100%;
+        border: solid blue;
+    }
+    
+    PromptPanel > Vertical {
+        height: 100%;
+        width: 100%;
+    }
+    
+    PromptPanel .panel-title {
         height: 3;
-        margin: 1 0;
+        padding: 1;
+        text-align: center;
+        background: $primary;
+        border: solid red;
     }
     
-    #style-set {
-        width: auto;
-        margin-right: 2;
+    PromptPanel #prompt-input {
+        height: 1fr;
+        min-height: 10;
+        margin: 1;
+        border: solid green;
+        background: $surface;
     }
     
-    RadioButton {
+    PromptPanel .controls-container {
+        height: auto;
+        min-height: 9;
+        margin: 1;
+        padding: 1;
+        background: $panel;
+        border: solid yellow;
+    }
+    
+    PromptPanel .style-controls {
+        height: 3;
+        margin-bottom: 1;
+        layout: horizontal;
+    }
+    
+    PromptPanel .button-controls {
+        height: 3;
+        layout: horizontal;
+    }
+    
+    PromptPanel .style-label {
         width: auto;
+        margin-right: 1;
+        content-align: center middle;
+    }
+    
+    PromptPanel RadioSet {
+        width: auto;
+        height: 3;
+        margin-left: 1;
+        layout: horizontal;
+    }
+    
+    PromptPanel RadioButton {
         margin: 0 1;
     }
     
-    Button {
-        width: auto;
+    PromptPanel Button {
+        min-width: 10;
         margin: 0 1;
+    }
+    
+    PromptPanel #clear-btn {
+        background: purple !important;
+        color: white !important;
+        border: solid yellow !important;
+    }
+    
+    PromptPanel #submit-btn {
+        background: green;
+        color: black;
+        border: solid red;
     }
     """
     
@@ -75,8 +142,18 @@ class PromptPanel(Static):
         self.prompt_history = []
         self.history_index = -1
         
+        # Debug: Log CSS loading
+        logging.info("PromptPanel CSS styles loading...")
+        logging.info(f"CSS Hash: {hash(self.CSS)}")
+        
     def compose(self) -> ComposeResult:
         """Create the panel layout."""
+        # Log to help debug
+        logging.debug("PromptPanel compose() called")
+        
+        # Show notification to confirm new code is loaded
+        self.app.notify("PromptPanel loaded with PURPLE clear button!", severity="information")
+        
         with Vertical():
             yield Static("📝 Prompt Generator", classes="panel-title")
             
@@ -84,20 +161,25 @@ class PromptPanel(Static):
             self.prompt_input = TextArea(
                 id="prompt-input"
             )
-            self.prompt_input.styles.height = "50%"
             yield self.prompt_input
             
-            # Style selector and buttons on same line
-            with Horizontal(classes="controls"):
-                # Style radio buttons
-                with RadioSet(id="style-set"):
-                    for style, _ in self.DEFAULT_STYLES:
-                        yield RadioButton(style.capitalize(), value=style)
+            # Controls container
+            with Vertical(classes="controls-container"):
+                # Style selector on its own line
+                with Horizontal(classes="style-controls"):
+                    yield Static("Style: ", classes="style-label")
                     
-                # Action buttons
-                yield Button("Submit", variant="primary", id="submit-btn")
-                yield Button("Improve", variant="default", id="optimize-btn")
-                yield Button("Clear", variant="warning", id="clear-btn")
+                    # Use RadioSet for style selection
+                    self.style_radioset = RadioSet()
+                    with self.style_radioset:
+                        for i, (style, desc) in enumerate(self.DEFAULT_STYLES):
+                            yield RadioButton(style.capitalize(), value=i == 0, id=f"style-{style}")
+                        
+                # Action buttons on their own line
+                with Horizontal(classes="button-controls"):
+                    yield Button("Submit", variant="primary", id="submit-btn")
+                    yield Button("Improve", variant="default", id="optimize-btn")
+                    yield Button("Clear [PURPLE]", variant="warning", id="clear-btn")
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -109,6 +191,7 @@ class PromptPanel(Static):
             self.optimize_prompt()
         elif button_id == "clear-btn":
             self.clear_prompt()
+    
             
     def on_key(self, event) -> None:
         """Handle keyboard shortcuts."""
@@ -141,7 +224,8 @@ class PromptPanel(Static):
         # Call submit handler
         if self.on_submit:
             # Run async callback
-            asyncio.create_task(self._async_submit(final_prompt))
+            task = asyncio.create_task(self._async_submit(final_prompt))
+            task.add_done_callback(self._handle_task_error)
         else:
             # Notify terminal panel directly
             asyncio.create_task(self._send_to_terminal(final_prompt))
@@ -176,11 +260,18 @@ class PromptPanel(Static):
             return
             
         # Get selected style from RadioSet
-        style_set = self.query_one("#style-set", RadioSet)
-        style = style_set.value or "verbose"
+        style = "verbose"  # Default
+        if hasattr(self, 'style_radioset'):
+            # Find which radio button is selected
+            for i, (style_name, _) in enumerate(self.DEFAULT_STYLES):
+                radio = self.query_one(f"#style-{style_name}", RadioButton)
+                if radio.value:
+                    style = style_name
+                    break
         
         # Run optimization in background
-        asyncio.create_task(self._optimize_prompt_async(prompt, style))
+        task = asyncio.create_task(self._optimize_prompt_async(prompt, style))
+        task.add_done_callback(self._handle_task_error)
         
     async def _optimize_prompt_async(self, prompt: str, style: str) -> None:
         """Optimize prompt asynchronously and submit."""
@@ -224,7 +315,7 @@ Output only the enhanced prompt, nothing else."""
         if GROQ_AVAILABLE and os.getenv("GROQ_API_KEY"):
             client = Groq(api_key=os.getenv("GROQ_API_KEY"))
             response = client.chat.completions.create(
-                model="llama-4-maverick-17Bx128E",
+                model="llama-3.1-70b-versatile",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
@@ -328,3 +419,54 @@ Output only the enhanced prompt, nothing else."""
         
         if 0 <= self.history_index < len(self.prompt_history):
             self.prompt_input.text = self.prompt_history[self.history_index]
+    
+    def get_copyable_content(self) -> str:
+        """Get the content that can be copied from this panel."""
+        # Return the current prompt text
+        return self.prompt_input.text if hasattr(self, 'prompt_input') else ""
+    
+    def on_focus(self, event) -> None:
+        """Handle focus event to ensure copy shortcuts work."""
+        # Make sure our bindings are active when focused
+        pass
+    
+    def _handle_task_error(self, task: asyncio.Task) -> None:
+        """Handle errors from async tasks."""
+        try:
+            task.result()
+        except Exception as e:
+            self.app.notify(f"Error: {str(e)}", severity="error")
+            logging.error(f"Task error: {e}", exc_info=True)
+    
+    def action_select_all_in_panel(self) -> None:
+        """Select all text in the prompt input."""
+        if hasattr(self, 'prompt_input'):
+            # Focus the text area first
+            self.prompt_input.focus()
+            # Select all text in the TextArea
+            if hasattr(self.prompt_input, 'select_all'):
+                self.prompt_input.select_all()
+            else:
+                # Fallback: set cursor to beginning and selection to end
+                self.prompt_input.cursor_location = (0, 0)
+                if self.prompt_input.text:
+                    lines = self.prompt_input.text.split('\n')
+                    last_line = len(lines) - 1
+                    last_col = len(lines[-1])
+                    # Try to select from start to end
+                    try:
+                        self.prompt_input.selection = ((0, 0), (last_line, last_col))
+                    except:
+                        pass
+    
+    def get_selected_content(self) -> Optional[str]:
+        """Get currently selected content from the TextArea."""
+        try:
+            if hasattr(self, 'prompt_input'):
+                # TextArea has a text property we can use
+                # For now, just return None to indicate no selection
+                # This will make it fall back to copying all content
+                return None
+        except Exception as e:
+            logging.error(f"Error in get_selected_content: {e}")
+        return None

@@ -9,8 +9,7 @@ layout:
   # Bottom panel - Claude Terminal
   - type: TerminalPanel
     id: terminal
-    params:
-      auto_start: true
+    params: {}
 
 # Additional settings
 settings:

@@ -33,9 +33,7 @@ A modular, live-editable development environment powered by Claude CLI. This sel
 python main.py
 ```
 
-On startup, you'll be prompted to:
-- Start with the default layout (Prompt Panel + Terminal Panel)
-- Start from scratch (Terminal Panel only)
+The app automatically loads the default workspace with Prompt Panel and Terminal Panel.
 
 ### Keyboard Shortcuts
 
@@ -45,6 +43,15 @@ On startup, you'll be prompted to:
 - `Ctrl+Q`: Quit application
 - `Ctrl+R`: Reload all panels (hot-reload)
 
+**Copy/Paste (macOS)**:
+- `Cmd+C`: Copy selected text (or all if nothing selected)
+- `Cmd+Shift+C`: Copy all panel content
+- `Cmd+A`: Select all text in current panel (PromptPanel only)
+
+**Copy/Paste (Linux/Windows)**:
+- `Ctrl+Shift+C`: Copy selected text
+- `Cmd+Shift+C`: Copy all panel content (if supported)
+
 **Prompt Panel**:
 - `Enter`: Submit prompt
 - `Ctrl+Enter`: Submit prompt (alternative)
@@ -53,8 +60,8 @@ On startup, you'll be prompted to:
 - `Ctrl+Up/Down`: Navigate prompt history
 
 **Terminal Panel**:
-- `Ctrl+C`: Send interrupt to Claude
-- `Ctrl+D`: Restart Claude CLI
+- `Ctrl+K`: Interrupt Claude
+- `Ctrl+R`: Restart Claude session
 
 ### Configuration
 
@@ -176,7 +183,13 @@ This creates a powerful feedback loop where you can use Claude to:
 - **Claude CLI not starting**: Ensure `claude` command is in your PATH
 - **Prompt optimization not working**: Check API keys are set correctly
 - **Hot-reload not working**: Check file permissions in the `panels/` directory
-- **UI freezing**: Use Ctrl+C in terminal to interrupt long-running operations
+- **UI freezing**: Use Ctrl+K to interrupt Claude operations
+- **Copy/Paste not working over SSH**: 
+  - The app uses OSC 52 escape sequences for clipboard support over SSH
+  - **iTerm2**: Works by default
+  - **Terminal.app**: Enable in Preferences → Profiles → Advanced → "Allow sending of clipboard contents"
+  - **tmux**: Add `set -g set-clipboard on` to ~/.tmux.conf
+  - **kitty, alacritty**: Usually work by default
 
 ## Future Enhancements
 

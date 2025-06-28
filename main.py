@@ -37,6 +37,7 @@ class PanelReloader(FileSystemEventHandler):
         if path.suffix == '.py' and path.parent == self.panels_dir:
             module_name = path.stem
             console.print(f"[yellow]Hot-reloading panel: {module_name}[/yellow]")
+            logging.info(f"Hot-reload triggered for: {module_name}")
             self.app.call_from_thread(self.app.reload_panel, module_name)
 
 class ClaudeCodeMorph(App):
@@ -54,7 +55,22 @@ class ClaudeCodeMorph(App):
     
     .panel {
         border: solid blue;
-        height: 100%;
+        height: 1fr;
+    }
+    
+    PromptPanel {
+        height: 30%;
+        background: $surface;
+    }
+    
+    TerminalPanel {
+        height: 40%;
+        background: #1e1e1e;
+        border: solid green;
+    }
+    
+    #terminal-output {
+        background: #1e1e1e;
     }
     """
     
@@ -80,14 +96,27 @@ class ClaudeCodeMorph(App):
         self.observer = Observer()
         self.panel_reloader = PanelReloader(self)
         
+    def compose(self) -> ComposeResult:
+        """Create the main layout."""
+        yield Header()
+        yield Vertical(id="main-container")
+        yield Footer()
+        
     def on_mount(self) -> None:
         """Called when the app starts."""
         # Start file watcher for hot-reloading
-        self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
-        self.observer.start()
+        try:
+            self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
+            self.observer.start()
+        except Exception as e:
+            logging.warning(f"Could not start file watcher for hot-reloading: {e}")
+            # Continue without hot-reloading
         
         # Skip prompt and load default workspace directly
         self.call_later(lambda: asyncio.create_task(self.load_workspace_file("default.yaml")))
+        
+        # Connect the panels after loading
+        self.call_later(self._connect_panels)
         
     async def startup_prompt(self) -> None:
         """Show startup prompt to user."""
@@ -103,18 +132,12 @@ class ClaudeCodeMorph(App):
     def _get_startup_choice(self) -> str:
         """Get startup choice from user (runs in thread)."""
         console.clear()
-        console.print("[bold cyan]Claude Code Morph v0.1[/bold cyan]")
+        console.print("[bold cyan]Claude Code Morph v0.1 - DEBUG VERSION[/bold cyan]")
         console.print("\nStartup Options:")
         console.print("1. Start with default layout")
         console.print("2. Start from scratch (terminal only)")
         
         return Prompt.ask("\nYour choice", choices=["1", "2"], default="1")
-        
-    def compose(self) -> ComposeResult:
-        """Create initial UI layout."""
-        yield Header(show_clock=True)
-        yield Vertical(id="main-container")
-        yield Footer()
         
     async def load_workspace_file(self, filename: str) -> None:
         """Load a workspace configuration from file."""
@@ -148,10 +171,16 @@ class ClaudeCodeMorph(App):
         # Load panels from config
         layout = config.get("layout", [])
         
+        logging.info(f"Loading workspace with {len(layout)} panels")
+        self.notify(f"Loading workspace with {len(layout)} panels")
+        
         for panel_config in layout:
             panel_type = panel_config.get("type")
             panel_id = panel_config.get("id", panel_type)
             params = panel_config.get("params", {})
+            
+            logging.info(f"Loading panel: {panel_type} (id: {panel_id})")
+            self.notify(f"Loading panel: {panel_type} (id: {panel_id})")
             
             if panel_type:
                 await self.add_panel(panel_type, panel_id, params)
@@ -175,6 +204,11 @@ class ClaudeCodeMorph(App):
                 self.notify(f"Panel module {panel_type}.py not found", severity="error")
                 return
                 
+            # Add the project root to sys.path temporarily to allow imports
+            project_root = str(Path(__file__).parent)
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            
             spec = importlib.util.spec_from_file_location(panel_type, module_path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
@@ -194,6 +228,8 @@ class ClaudeCodeMorph(App):
             # Store reference
             self.panels[panel_id] = panel
             
+            logging.info(f"Successfully added panel {panel_id}")
+            
         except Exception as e:
             import traceback
             error_msg = f"Error loading panel {panel_type}: {str(e)}"
@@ -205,6 +241,8 @@ class ClaudeCodeMorph(App):
             
     async def reload_panel(self, module_name: str) -> None:
         """Hot-reload a panel module."""
+        logging.info(f"reload_panel called for module: {module_name}")
+        
         # Find panels using this module
         panels_to_reload = []
         
@@ -213,7 +251,10 @@ class ClaudeCodeMorph(App):
                 panels_to_reload.append((panel_id, panel))
                 
         if not panels_to_reload:
+            logging.warning(f"No panels found using module: {module_name}")
             return
+        
+        logging.info(f"Found {len(panels_to_reload)} panels to reload")
             
         for panel_id, old_panel in panels_to_reload:
             try:
@@ -303,14 +344,36 @@ class ClaudeCodeMorph(App):
         
         for panel_type in panel_types:
             self.call_from_thread(self.reload_panel, panel_type)
+    
+    def _connect_panels(self) -> None:
+        """Connect the prompt panel to the terminal panel."""
+        prompt_panel = self.panels.get("prompt")
+        terminal_panel = self.panels.get("terminal")
+        
+        logging.info(f"Connecting panels: prompt={prompt_panel}, terminal={terminal_panel}")
+        
+        if prompt_panel and terminal_panel:
+            # Set the on_submit callback
+            prompt_panel.on_submit = terminal_panel.send_prompt
+            self.notify("Panels connected successfully")
+            logging.info("Panels connected successfully")
+        else:
+            logging.warning(f"Could not connect panels: prompt={prompt_panel}, terminal={terminal_panel}")
             
     def on_unmount(self) -> None:
         """Clean up when app exits."""
-        self.observer.stop()
-        self.observer.join()
+        try:
+            if hasattr(self, 'observer') and self.observer.is_alive():
+                self.observer.stop()
+                self.observer.join(timeout=1.0)
+        except Exception as e:
+            logging.warning(f"Error stopping file watcher: {e}")
 
 def main():
     """Entry point for Claude Code Morph."""
+    # Disable Python bytecode generation for cleaner development
+    os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+    
     # Set up logging
     logging.basicConfig(
         filename='main.log',
@@ -319,9 +382,15 @@ def main():
         force=True
     )
     logging.info("Starting Claude Code Morph...")
+    console.print("[bold cyan]Claude Code Morph[/bold cyan]")
     
-    # Redirect stderr to log file as well
-    sys.stderr = open('main.log', 'a')
+    # Don't redirect stderr when running in a terminal to avoid Textual conflicts
+    # Only redirect if we're not in an interactive terminal
+    if not sys.stderr.isatty():
+        try:
+            sys.stderr = open('main.log', 'a')
+        except Exception as e:
+            logging.warning(f"Could not redirect stderr: {e}")
     
     # Set the working directory to this app's source directory
     # This allows Claude CLI to edit the app from within itself
@@ -346,6 +415,11 @@ def main():
     except KeyboardInterrupt:
         console.print("\n[red]Interrupted! Exiting...[/red]")
         sys.exit(0)
+    except Exception as e:
+        logging.error(f"Fatal error in main app: {e}", exc_info=True)
+        console.print(f"\n[red]Fatal error: {e}[/red]")
+        console.print("[yellow]Check main.log for details[/yellow]")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
