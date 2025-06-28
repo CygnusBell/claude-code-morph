@@ -109,10 +109,16 @@ class PromptPanel(BasePanel):
         margin: 0 1;
     }
     
-    PromptPanel #clear-btn {
-        background: purple !important;
+    PromptPanel Button#clear-btn {
+        background: red !important;
         color: white !important;
-        border: solid yellow !important;
+        border: solid darkred !important;
+    }
+    
+    PromptPanel .clear-button {
+        background: red !important;
+        color: white !important;
+        border: solid darkred !important;
     }
     
     PromptPanel #submit-btn {
@@ -171,15 +177,23 @@ class PromptPanel(BasePanel):
                     
                     # Use RadioSet for style selection
                     self.style_radioset = RadioSet()
-                    with self.style_radioset:
-                        for i, (style, desc) in enumerate(self.DEFAULT_STYLES):
-                            yield RadioButton(style.capitalize(), value=i == 0, id=f"style-{style}")
+                    # Add the RadioSet to the layout
+                    yield self.style_radioset
+                    
+                    # Add RadioButtons to the RadioSet
+                    for i, (style, desc) in enumerate(self.DEFAULT_STYLES):
+                        rb = RadioButton(style.capitalize(), value=(i == 0), id=f"style-{style}")
+                        self.style_radioset.mount(rb)
                         
                 # Action buttons on their own line
                 with Horizontal(classes="button-controls"):
                     yield Button("Submit", variant="primary", id="submit-btn")
                     yield Button("Improve", variant="default", id="optimize-btn")
-                    yield Button("Clear [PURPLE]", variant="warning", id="clear-btn")
+                    # Create clear button with explicit red background
+                    clear_btn = Button("Clear", id="clear-btn", classes="clear-button")
+                    # Force red background using direct CSS string
+                    clear_btn.styles.css = "background: red; color: white; border: solid darkred;"
+                    yield clear_btn
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""

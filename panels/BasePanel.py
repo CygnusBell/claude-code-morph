@@ -91,6 +91,7 @@ class BasePanel(Static):
         
     def action_copy_selected(self) -> None:
         """Copy selected content to clipboard."""
+        logging.info("Copy action triggered (Cmd+C)")
         try:
             # Check if app exists
             if not hasattr(self, 'app') or not self.app:
@@ -99,11 +100,11 @@ class BasePanel(Static):
                 
             content = self.get_selected_content()
             if content:
+                logging.debug(f"Copying selected content: {len(content)} characters")
                 self._copy_to_clipboard(content)
-                if hasattr(self.app, 'notify'):
-                    self.app.notify(f"Copied {len(content)} characters to clipboard")
             else:
                 # If no selection, copy all
+                logging.debug("No selection, copying all content")
                 self.action_copy_all()
         except Exception as e:
             logging.error(f"Error in action_copy_selected: {e}", exc_info=True)
@@ -112,6 +113,7 @@ class BasePanel(Static):
             
     def action_copy_all(self) -> None:
         """Copy all panel content to clipboard."""
+        logging.info("Copy all action triggered (Cmd+Shift+C)")
         try:
             # Check if app exists
             if not hasattr(self, 'app') or not self.app:
@@ -120,9 +122,8 @@ class BasePanel(Static):
                 
             content = self.get_copyable_content()
             if content:
+                logging.debug(f"Copying all content: {len(content)} characters")
                 self._copy_to_clipboard(content)
-                if hasattr(self.app, 'notify'):
-                    self.app.notify(f"Copied all panel content ({len(content)} characters)")
             else:
                 if hasattr(self.app, 'notify'):
                     self.app.notify("No content to copy", severity="warning")
@@ -133,75 +134,42 @@ class BasePanel(Static):
             
     def _copy_to_clipboard(self, content: str) -> None:
         """Copy content to system clipboard."""
-        global CLIPBOARD_AVAILABLE, OSC52_AVAILABLE
-        copy_success = False
+        from pathlib import Path
         
         logging.debug(f"Attempting to copy {len(content)} characters")
         
-        # Try OSC 52 first (works over SSH)
-        if OSC52_AVAILABLE:
-            try:
-                logging.debug("Trying OSC 52 clipboard...")
-                if copy_to_clipboard_osc52(content):
-                    copy_success = True
-                    logging.debug("OSC 52 copy succeeded")
-                    if hasattr(self, 'app') and hasattr(self.app, 'notify'):
-                        self.app.notify("Copied! (OSC 52 - works over SSH)")
-            except Exception as e:
-                logging.warning(f"OSC 52 failed: {e}")
-                pass
-        
-        # Try pyperclip if OSC 52 didn't work
-        if not copy_success and CLIPBOARD_AVAILABLE:
-            try:
-                logging.debug("Trying pyperclip...")
-                pyperclip.copy(content)
-                copy_success = True
-                logging.debug("Pyperclip copy succeeded")
-            except Exception as e:
-                # Pyperclip failed, will try fallback
-                logging.warning(f"Pyperclip failed: {e}")
-                CLIPBOARD_AVAILABLE = False  # Disable for future attempts
-                pass
-        
-        # Try fallback if pyperclip failed or unavailable
-        if not copy_success and fallback_copy:
-            try:
-                logging.debug("Trying fallback clipboard...")
-                fallback_copy(content)
-                copy_success = True
-                logging.debug("Fallback copy succeeded")
-                if hasattr(self, 'app') and hasattr(self.app, 'notify'):
-                    self.app.notify("Copied to file clipboard (install xclip/xsel for system clipboard)")
-            except Exception as e:
-                # Fallback also failed
-                logging.warning(f"Fallback clipboard failed: {e}")
-                pass
-        
-        # If copy succeeded, just return (no message posting needed)
-        if copy_success:
-            # Copy worked, nothing else to do
-            pass
-        else:
-            # All methods failed - show the text in a copyable format
+        # Always save to clipboard.txt file for easy access
+        clipboard_file = Path(__file__).parent.parent / "clipboard.txt"
+        try:
+            with open(clipboard_file, 'w') as f:
+                f.write(content)
+            logging.info(f"Content saved to {clipboard_file}")
+            
+            # Show notification about file save
             if hasattr(self, 'app') and hasattr(self.app, 'notify'):
-                self.app.notify("Clipboard unavailable - text displayed below", severity="warning")
-                
-            # Display the text so user can manually copy
-            if OSC52_AVAILABLE:
-                try:
-                    display_text, _ = copy_with_display(content)
-                    # Log the copyable text
-                    logging.info(display_text)
-                    # Also try to show in the app if possible
-                    if hasattr(self, 'app'):
-                        # Find terminal panel and display there
-                        for panel in self.app.panels.values():
-                            if panel.__class__.__name__ == "TerminalPanel" and hasattr(panel, 'output'):
-                                panel.output.write(display_text)
-                                break
-                except:
-                    pass
+                self.app.notify(f"Copied {len(content)} characters to clipboard.txt", severity="success")
+            
+            # Also display in terminal panel for easy selection
+            if hasattr(self, 'app'):
+                # Find terminal panel and display there
+                for panel in self.app.panels.values():
+                    if panel.__class__.__name__ == "TerminalPanel" and hasattr(panel, 'output'):
+                        # RichLog widget requires markup
+                        border = "─" * 60
+                        panel.output.write(f"\n[bold yellow]╭{border}╮[/bold yellow]")
+                        panel.output.write("[bold yellow]│ CONTENT COPIED TO clipboard.txt[/bold yellow]")
+                        panel.output.write("[bold yellow]│ Select text below to copy manually:[/bold yellow]")
+                        panel.output.write(f"[bold yellow]├{border}┤[/bold yellow]")
+                        panel.output.write(f"[white]{content}[/white]")
+                        panel.output.write(f"[bold yellow]╰{border}╯[/bold yellow]")
+                        break
+            
+            return
+            
+        except Exception as e:
+            logging.error(f"Failed to save clipboard content: {e}")
+            if hasattr(self, 'app') and hasattr(self.app, 'notify'):
+                self.app.notify(f"Copy failed: {str(e)}", severity="error")
             
     def on_click(self, event: Click) -> None:
         """Handle mouse clicks for selection."""

@@ -2,6 +2,10 @@
 
 import base64
 import sys
+import os
+
+# Store original stderr before any redirection
+_original_stderr = sys.__stderr__
 
 def copy_to_clipboard_osc52(text: str) -> bool:
     """Copy text to clipboard using OSC 52 escape sequence.
@@ -17,11 +21,24 @@ def copy_to_clipboard_osc52(text: str) -> bool:
         # Format: ESC ] 52 ; c ; <base64 encoded text> BEL
         osc52 = f"\033]52;c;{encoded}\a"
         
-        # Write to stderr to avoid interfering with stdout
-        sys.stderr.write(osc52)
-        sys.stderr.flush()
-        
-        return True
+        # Try to write to /dev/tty first (direct terminal access)
+        try:
+            with open('/dev/tty', 'w') as tty:
+                tty.write(osc52)
+                tty.flush()
+            return True
+        except (OSError, IOError):
+            # Fallback to original stderr if /dev/tty not available
+            if _original_stderr and hasattr(_original_stderr, 'write'):
+                _original_stderr.write(osc52)
+                _original_stderr.flush()
+                return True
+            else:
+                # Last resort: try current stderr
+                sys.stderr.write(osc52)
+                sys.stderr.flush()
+                return True
+                
     except Exception as e:
         return False
 
