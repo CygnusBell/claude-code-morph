@@ -5,7 +5,7 @@ import logging
 from typing import Optional, Callable
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Center, Middle
-from textual.widgets import Static, TextArea, Button, Label, Select
+from textual.widgets import Static, TextArea, Button, Label
 from textual.binding import Binding
 from textual.screen import ModalScreen
 from rich.panel import Panel
@@ -93,10 +93,15 @@ class PromptPanel(BasePanel):
         content-align: center middle;
     }
     
-    PromptPanel Select {
-        width: 20;
+    PromptPanel .style-button {
+        min-width: 8;
         height: 3;
-        margin-left: 1;
+        margin: 0 0.5;
+    }
+    
+    PromptPanel .style-button.selected {
+        background: $primary;
+        color: $text;
     }
     
     PromptPanel Button {
@@ -170,14 +175,16 @@ class PromptPanel(BasePanel):
                 with Horizontal(classes="style-controls"):
                     yield Static("Style: ", classes="style-label")
                     
-                    # Use Select dropdown for style selection
-                    style_options = [(style.capitalize(), style) for style, _ in self.DEFAULT_STYLES]
-                    self.style_select = Select(
-                        options=style_options,
-                        value="verbose",
-                        id="style-select"
-                    )
-                    yield self.style_select
+                    # Use buttons for style selection
+                    self.selected_style = "verbose"
+                    for style, desc in self.DEFAULT_STYLES:
+                        btn = Button(
+                            style.capitalize(), 
+                            id=f"style-{style}",
+                            classes="style-button" + (" selected" if style == "verbose" else "")
+                        )
+                        btn.tooltip = desc
+                        yield btn
                         
                 # Action buttons on their own line
                 with Horizontal(classes="button-controls"):
@@ -201,6 +208,9 @@ class PromptPanel(BasePanel):
             self.optimize_prompt()
         elif button_id == "clear-btn":
             self.clear_prompt()
+        elif button_id and button_id.startswith("style-"):
+            # Handle style button clicks
+            self._select_style(button_id[6:])  # Remove "style-" prefix
     
             
     def on_key(self, event) -> None:
@@ -269,10 +279,8 @@ class PromptPanel(BasePanel):
             self.app.notify("Please enter a prompt to optimize", severity="warning")
             return
             
-        # Get selected style from Select dropdown
-        style = "verbose"  # Default
-        if hasattr(self, 'style_select'):
-            style = self.style_select.value or "verbose"
+        # Get selected style
+        style = getattr(self, 'selected_style', 'verbose')
         
         # Run optimization in background
         task = asyncio.create_task(self._optimize_prompt_async(prompt, style))
@@ -388,6 +396,20 @@ Output only the enhanced prompt, nothing else."""
             self.app.notify("Prompt cleared", severity="information")
         else:
             self.app.notify("Nothing to clear", severity="information")
+    
+    def _select_style(self, style: str) -> None:
+        """Select a style and update button states."""
+        self.selected_style = style
+        
+        # Update button classes
+        for style_name, _ in self.DEFAULT_STYLES:
+            btn = self.query_one(f"#style-{style_name}", Button)
+            if style_name == style:
+                btn.add_class("selected")
+            else:
+                btn.remove_class("selected")
+        
+        self.app.notify(f"Style: {style.capitalize()}", severity="information")
     
     async def _confirm_clear(self) -> None:
         """Show confirmation dialog for clearing."""
