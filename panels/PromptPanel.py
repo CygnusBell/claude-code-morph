@@ -176,14 +176,9 @@ class PromptPanel(BasePanel):
                     yield Static("Style: ", classes="style-label")
                     
                     # Use RadioSet for style selection
-                    self.style_radioset = RadioSet()
-                    # Add the RadioSet to the layout
-                    yield self.style_radioset
-                    
-                    # Add RadioButtons to the RadioSet
-                    for i, (style, desc) in enumerate(self.DEFAULT_STYLES):
-                        rb = RadioButton(style.capitalize(), value=(i == 0), id=f"style-{style}")
-                        self.style_radioset.mount(rb)
+                    with RadioSet() as self.style_radioset:
+                        for i, (style, desc) in enumerate(self.DEFAULT_STYLES):
+                            yield RadioButton(style.capitalize(), value=(i == 0), id=f"style-{style}")
                         
                 # Action buttons on their own line
                 with Horizontal(classes="button-controls"):
@@ -191,8 +186,10 @@ class PromptPanel(BasePanel):
                     yield Button("Improve", variant="default", id="optimize-btn")
                     # Create clear button with explicit red background
                     clear_btn = Button("Clear", id="clear-btn", classes="clear-button")
-                    # Force red background using direct CSS string
-                    clear_btn.styles.css = "background: red; color: white; border: solid darkred;"
+                    # Set individual style properties
+                    clear_btn.styles.background = "red"
+                    clear_btn.styles.color = "white"
+                    clear_btn.styles.border = ("solid", "darkred")
                     yield clear_btn
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
