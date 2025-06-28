@@ -20,16 +20,49 @@ A modular, live-editable development environment powered by Claude CLI. This sel
      - `ANTHROPIC_API_KEY` for Claude-based optimization
      - `OPENAI_API_KEY` for GPT-based optimization
 
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
 ## Usage
 
-### Starting the Application
+### Quick Start (Recommended)
+
+The easiest way to run Claude Code Morph is using the launcher scripts that automatically handle virtual environment setup:
+
+**Linux/macOS:**
+```bash
+./morph
+```
+
+**Windows:**
+```cmd
+morph.bat
+```
+
+**Cross-platform (Python):**
+```bash
+python morph.py
+```
+
+These launchers will:
+- Create a virtual environment if it doesn't exist
+- Install all required dependencies automatically
+- Launch the application
+
+### Manual Setup
+
+If you prefer to manage the virtual environment yourself:
 
 ```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate it
+source venv/bin/activate  # Linux/macOS
+# or
+venv\Scripts\activate.bat  # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the application
 python main.py
 ```
 

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Claude Code Morph launcher script
+# Automatically sets up and activates virtual environment
+
+set -e
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Check if venv exists, create if not
+if [ ! -d "venv" ]; then
+    echo "🔧 Creating virtual environment..."
+    python3 -m venv venv
+fi
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Check if requirements are installed
+if ! python -c "import textual" 2>/dev/null; then
+    echo "📦 Installing dependencies..."
+    pip install -r requirements.txt
+fi
+
+# Launch the application
+echo "🚀 Starting Claude Code Morph..."
+python main.py "$@"
