@@ -199,7 +199,6 @@ class PromptPanel(BasePanel):
                     ("architect", "Architect"),
                     ("refactor", "Refactor"),
                 ],
-                value="verbose",
                 id="style-select",
             )
             yield self.style_select
@@ -210,7 +209,6 @@ class PromptPanel(BasePanel):
                     ("develop", "Develop"),
                     ("morph", "Morph"),
                 ],
-                value="develop",
                 id="mode-select",
             )
             yield self.mode_select
@@ -220,14 +218,6 @@ class PromptPanel(BasePanel):
             yield Button("Improve", variant="default", id="optimize-btn")
             yield Button("Clear", id="clear-btn")
     
-    async def on_mount(self) -> None:
-        """Called when panel is mounted."""
-        # Set the dropdown values after mount to work around Textual bug
-        await super().on_mount()
-        if hasattr(self, 'style_select'):
-            self.style_select.value = self.selected_style
-        if hasattr(self, 'mode_select'):
-            self.mode_select.value = self.selected_mode
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -242,12 +232,17 @@ class PromptPanel(BasePanel):
     
     def on_select_changed(self, event: Select.Changed) -> None:
         """Handle dropdown selection changes."""
-        if event.select.id == "style-select":
+        # Get the actual value from the selection
+        if event.value == Select.BLANK:
+            return  # No selection
+            
+        if event.select.id == "style-select" and event.value is not None:
+            # The value is the tuple, we want the first element
             self.selected_style = event.value
-            self.app.notify(f"Style: {event.value.capitalize()}", severity="information")
-        elif event.select.id == "mode-select":
+            self.app.notify(f"Style: {self.selected_style.capitalize()}", severity="information")
+        elif event.select.id == "mode-select" and event.value is not None:
             self.selected_mode = event.value
-            mode_desc = "IDE development" if event.value == "morph" else "Project development"
+            mode_desc = "IDE development" if self.selected_mode == "morph" else "Project development"
             self.app.notify(f"Mode: {mode_desc}", severity="information")
     
     

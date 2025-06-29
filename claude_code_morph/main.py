@@ -392,11 +392,7 @@ class ClaudeCodeMorph(App):
                 self.notify("Panels connected successfully")
                 logging.info("Panels connected successfully")
                 
-                # Also update dropdown selections if needed
-                if hasattr(prompt_panel, 'style_select') and hasattr(prompt_panel, 'selected_style'):
-                    prompt_panel.style_select.value = prompt_panel.selected_style
-                if hasattr(prompt_panel, 'mode_select') and hasattr(prompt_panel, 'selected_mode'):
-                    prompt_panel.mode_select.value = prompt_panel.selected_mode
+                # Note: Can't set Select widget values directly due to Textual limitations
             else:
                 logging.error("Terminal panel does not have send_prompt method")
         else:
