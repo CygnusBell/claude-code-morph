@@ -15,16 +15,10 @@ def main():
     
     # Determine the morph source directory
     # When installed via pip, __file__ will be in site-packages
-    morph_package_dir = Path(__file__).parent
-    morph_source_dir = morph_package_dir.parent  # Go up to the installed package root
+    morph_package_dir = Path(__file__).parent  # This is claude_code_morph/
     
-    # Check if we're running from source (development mode)
-    if (morph_source_dir / "main.py").exists():
-        # Running from source
-        pass
-    else:
-        # Installed via pip - main.py should be in the package
-        morph_source_dir = morph_package_dir
+    # The source directory is always the package directory
+    morph_source_dir = morph_package_dir
     
     # Allow override
     if args.morph_dir:
@@ -32,6 +26,10 @@ def main():
     
     # Set environment variable so main.py knows where morph source is
     os.environ["MORPH_SOURCE_DIR"] = str(morph_source_dir)
+    
+    # Debug: Print paths
+    print(f"Morph source directory: {morph_source_dir}")
+    print(f"Panels directory would be: {morph_source_dir / 'panels'}")
     
     # Set working directory
     if args.cwd:
@@ -42,10 +40,11 @@ def main():
     os.environ["MORPH_USER_CWD"] = os.getcwd()
     
     # Import and run the main app
-    sys.path.insert(0, str(morph_source_dir))
+    # Add parent directory to path so we can import claude_code_morph
+    sys.path.insert(0, str(morph_source_dir.parent))
     
     # Import after path is set
-    from main import main as run_app
+    from claude_code_morph.main import main as run_app
     
     # Run the app
     run_app()
