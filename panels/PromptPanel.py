@@ -43,7 +43,6 @@ class PromptPanel(BasePanel):
     PromptPanel {
         layout: vertical;
         height: 100%;
-        border: solid blue;
     }
     
     PromptPanel > Vertical {
@@ -56,24 +55,22 @@ class PromptPanel(BasePanel):
         padding: 1;
         text-align: center;
         background: $primary;
-        border: solid red;
     }
     
     PromptPanel #prompt-input {
         height: 1fr;
         min-height: 10;
         margin: 1;
-        border: solid green;
         background: $surface;
     }
     
     PromptPanel .controls-container {
+        layout: vertical;
         height: auto;
-        min-height: 9;
+        min-height: 12;
         margin: 1;
         padding: 1;
         background: $panel;
-        border: solid yellow;
     }
     
     PromptPanel Grid {
@@ -97,15 +94,16 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel .style-label, PromptPanel .mode-label {
-        width: 6;
+        width: auto;
+        min-width: 6;
         padding: 0 1;
         color: $text;
         text-style: bold;
-        content-align: center middle;
+        content-align: left middle;
     }
     
     PromptPanel .style-button, PromptPanel .mode-button {
-        min-width: 9;
+        min-width: 7;
         height: 3;
         margin: 0 0.5;
         content-align: center middle;
@@ -123,7 +121,7 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel Button {
-        min-width: 9;
+        min-width: 7;
         margin: 0 0.5;
         content-align: center middle;
         text-align: center;
@@ -140,7 +138,6 @@ class PromptPanel(BasePanel):
     PromptPanel #submit-btn {
         background: green;
         color: black;
-        border: solid red;
     }
     """
     
@@ -167,6 +164,7 @@ class PromptPanel(BasePanel):
         # Debug: Log CSS loading
         logging.info("PromptPanel CSS styles loading...")
         logging.info(f"CSS Hash: {hash(self.CSS)}")
+        logging.debug(f"PromptPanel initialized with on_submit={on_submit}")
         
     def compose_content(self) -> ComposeResult:
         """Create the panel layout."""
@@ -184,7 +182,10 @@ class PromptPanel(BasePanel):
             
             # Controls container
             with Vertical(classes="controls-container"):
+                logging.debug("Creating controls container")
+                
                 # Style row
+                logging.debug("Creating style row")
                 with Horizontal(classes="style-row"):
                     yield Static("Style:", classes="style-label")
                     yield Button("Verbose", id="style-verbose", classes="style-button selected")
@@ -194,6 +195,7 @@ class PromptPanel(BasePanel):
                     yield Button("Refactor", id="style-refactor", classes="style-button")
                 
                 # Mode row
+                logging.debug("Creating mode row")
                 with Horizontal(classes="mode-row"):
                     yield Static("Mode:", classes="mode-label")
                     yield Button("Develop", id="mode-develop", classes="mode-button selected")
@@ -203,6 +205,7 @@ class PromptPanel(BasePanel):
                 self.selected_mode = "develop"
                         
                 # Action buttons row
+                logging.debug("Creating action buttons row")
                 with Horizontal(classes="button-controls"):
                     yield Button("Submit", variant="primary", id="submit-btn")
                     yield Button("Improve", variant="default", id="optimize-btn")
@@ -221,6 +224,9 @@ class PromptPanel(BasePanel):
         elif button_id and button_id.startswith("style-"):
             # Handle style button clicks
             self._select_style(button_id[6:])  # Remove "style-" prefix
+        elif button_id and button_id.startswith("mode-"):
+            # Handle mode button clicks
+            self._select_mode(button_id[5:])  # Remove "mode-" prefix
     
             
     def on_key(self, event) -> None:
@@ -305,11 +311,12 @@ class PromptPanel(BasePanel):
             optimized = await self._call_optimizer(prompt, style)
             self.app.notify("Prompt improved!", severity="success")
             
-            # Submit the optimized prompt directly
+            # Submit the optimized prompt directly with current mode
+            mode = getattr(self, 'selected_mode', 'develop')
             if self.on_submit:
-                await self._async_submit(optimized)
+                await self._async_submit(optimized, mode)
             else:
-                await self._send_to_terminal(optimized)
+                await self._send_to_terminal(optimized, mode)
                 
             # Clear input after submission
             self.prompt_input.text = ""

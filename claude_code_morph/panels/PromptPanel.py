@@ -68,8 +68,9 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel .controls-container {
+        layout: vertical;
         height: auto;
-        min-height: 9;
+        min-height: 12;
         margin: 1;
         padding: 1;
         background: $panel;
@@ -94,14 +95,18 @@ class PromptPanel(BasePanel):
         height: 3;
         margin-bottom: 1;
         align: center middle;
+        border: solid cyan;
+        visibility: visible;
     }
     
     PromptPanel .style-label, PromptPanel .mode-label {
-        width: 6;
+        width: auto;
+        min-width: 6;
         padding: 0 1;
         color: $text;
         text-style: bold;
-        content-align: center middle;
+        content-align: left middle;
+        border: solid red;
     }
     
     PromptPanel .style-button, PromptPanel .mode-button {
@@ -110,6 +115,8 @@ class PromptPanel(BasePanel):
         margin: 0 0.5;
         content-align: center middle;
         text-align: center;
+        visibility: visible;
+        display: block;
     }
     
     PromptPanel .style-button.selected, PromptPanel .mode-button.selected {
