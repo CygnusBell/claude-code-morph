@@ -5,9 +5,13 @@ import logging
 from typing import Optional, Callable
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Center, Middle, Grid
-from textual.widgets import Static, TextArea, Button, Label
+from textual.widgets import Static, TextArea, Button, Label, Select
+from textual.reactive import reactive
+from textual.widgets import OptionList
+from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual.screen import ModalScreen
+from textual.events import Click
 from rich.panel import Panel
 from rich.syntax import Syntax
 import asyncio
@@ -67,55 +71,52 @@ class PromptPanel(BasePanel):
     PromptPanel .controls-container {
         layout: vertical;
         height: auto;
-        min-height: 12;
-        margin: 1;
-        padding: 1;
+        min-height: 3;
+        margin: 0;
+        padding: 0 1;
         background: $panel;
     }
     
     PromptPanel .button-controls {
         height: 3;
         layout: horizontal;
+        align: center stretch;
     }
     
-    # Style and Mode controls
-    PromptPanel .style-row, PromptPanel .mode-row {
-        layout: horizontal;
-        height: 3;
-        margin-bottom: 1;
-        align: center middle;
+    PromptPanel Select {
+        width: 15;
+        margin: 0 1;
     }
     
-    PromptPanel .style-label, PromptPanel .mode-label {
-        width: auto;
-        min-width: 6;
+    PromptPanel #submit-btn {
+        margin-left: 2;
+    }
+    
+    # Clickable text buttons
+    PromptPanel .clickable {
         padding: 0 1;
+        margin: 0 1;
+        background: $panel;
         color: $text;
-        text-style: bold;
-        content-align: left middle;
     }
     
-    PromptPanel .style-button, PromptPanel .mode-button {
-        min-width: 7;
-        height: 3;
-        margin: 0 0.5;
-        content-align: center middle;
-        text-align: center;
+    PromptPanel .clickable:hover {
+        background: $primary;
+        color: $text;
     }
     
-    PromptPanel .style-button.selected, PromptPanel .mode-button.selected {
+    PromptPanel .selected {
         background: $primary;
         color: $text;
         text-style: bold;
     }
     
-    PromptPanel .style-button:hover, PromptPanel .mode-button:hover {
-        background: $primary-lighten-1;
-    }
-    
     PromptPanel Button {
-        min-width: 7;
-        margin: 0 0.5;
+        min-width: 8;
+        width: auto;
+        height: 1;
+        margin: 0 0.25;
+        padding: 0;
         content-align: center middle;
         text-align: center;
     }
@@ -149,7 +150,8 @@ class PromptPanel(BasePanel):
             on_submit: Callback function to handle submitted prompts
         """
         super().__init__(**kwargs)
-        self._init_params = {"on_submit": on_submit}  # Store for hot-reloading
+        # Don't store the actual callback in _init_params as it can't be serialized
+        self._init_params = {}  # Store for hot-reloading
         self.on_submit = on_submit
         self.prompt_history = []
         self.history_index = -1
@@ -159,8 +161,23 @@ class PromptPanel(BasePanel):
         logging.info(f"CSS Hash: {hash(self.CSS)}")
         logging.debug(f"PromptPanel initialized with on_submit={on_submit}")
         
+        # State that should survive hot-reload
+        self._preserved_state = {
+            'selected_style': 'verbose',
+            'selected_mode': 'develop',
+            'prompt_text': '',
+            'prompt_history': [],
+            'history_index': -1
+        }
+        
     def compose_content(self) -> ComposeResult:
         """Create the panel layout."""
+        # Initialize values if not already set
+        if not hasattr(self, 'selected_style'):
+            self.selected_style = "verbose"
+        if not hasattr(self, 'selected_mode'):
+            self.selected_mode = "develop"
+        
         # Title
         yield Static("📝 Prompt Generator", classes="panel-title")
         
@@ -168,32 +185,49 @@ class PromptPanel(BasePanel):
         self.prompt_input = TextArea(id="prompt-input")
         yield self.prompt_input
         
-        # Controls container
-        with Vertical(classes="controls-container"):
-            # Style row - all in one Horizontal
-            with Horizontal(classes="style-row"):
-                yield Static("Style:", classes="style-label")
-                yield Button("Verbose", id="style-verbose", classes="style-button selected", name="style-verbose")
-                yield Button("Concise", id="style-concise", classes="style-button", name="style-concise")
-                yield Button("Debugger", id="style-debugger", classes="style-button", name="style-debugger")
-                yield Button("Architect", id="style-architect", classes="style-button", name="style-architect")
-                yield Button("Refactor", id="style-refactor", classes="style-button", name="style-refactor")
-            
-            # Mode row - all in one Horizontal  
-            with Horizontal(classes="mode-row"):
-                yield Static("Mode:", classes="mode-label")
-                yield Button("Develop", id="mode-develop", classes="mode-button selected", name="mode-develop")
-                yield Button("Morph", id="mode-morph", classes="mode-button", name="mode-morph")
-            
-            # Action buttons row
-            with Horizontal(classes="button-controls"):
-                yield Button("Submit", variant="primary", id="submit-btn")
-                yield Button("Improve", variant="default", id="optimize-btn")
-                yield Button("Clear", id="clear-btn", classes="clear-button")
+        # Debug: Log composition
+        logging.debug("Creating controls container")
         
-        # Initialize after composition
-        self.selected_style = "verbose"
-        self.selected_mode = "develop"
+        # Controls with 3 dropdowns and action buttons
+        with Horizontal(classes="button-controls"):
+            # Style dropdown
+            self.style_select = Select(
+                [
+                    ("verbose", "Verbose"),
+                    ("concise", "Concise"),
+                    ("debugger", "Debugger"),
+                    ("architect", "Architect"),
+                    ("refactor", "Refactor"),
+                ],
+                value="verbose",
+                id="style-select",
+            )
+            yield self.style_select
+            
+            # Mode dropdown
+            self.mode_select = Select(
+                [
+                    ("develop", "Develop"),
+                    ("morph", "Morph"),
+                ],
+                value="develop",
+                id="mode-select",
+            )
+            yield self.mode_select
+            
+            # Action buttons
+            yield Button("Submit", variant="primary", id="submit-btn")
+            yield Button("Improve", variant="default", id="optimize-btn")
+            yield Button("Clear", id="clear-btn")
+    
+    async def on_mount(self) -> None:
+        """Called when panel is mounted."""
+        # Set the dropdown values after mount to work around Textual bug
+        await super().on_mount()
+        if hasattr(self, 'style_select'):
+            self.style_select.value = self.selected_style
+        if hasattr(self, 'mode_select'):
+            self.mode_select.value = self.selected_mode
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -205,12 +239,17 @@ class PromptPanel(BasePanel):
             self.optimize_prompt()
         elif button_id == "clear-btn":
             self.clear_prompt()
-        elif button_id and button_id.startswith("style-"):
-            # Handle style button clicks
-            self._select_style(button_id[6:])  # Remove "style-" prefix
-        elif button_id and button_id.startswith("mode-"):
-            # Handle mode button clicks
-            self._select_mode(button_id[5:])  # Remove "mode-" prefix
+    
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Handle dropdown selection changes."""
+        if event.select.id == "style-select":
+            self.selected_style = event.value
+            self.app.notify(f"Style: {event.value.capitalize()}", severity="information")
+        elif event.select.id == "mode-select":
+            self.selected_mode = event.value
+            mode_desc = "IDE development" if event.value == "morph" else "Project development"
+            self.app.notify(f"Mode: {mode_desc}", severity="information")
+    
     
             
     def on_key(self, event) -> None:
@@ -399,35 +438,6 @@ Output only the enhanced prompt, nothing else."""
         else:
             self.app.notify("Nothing to clear", severity="information")
     
-    def _select_style(self, style: str) -> None:
-        """Select a style and update button states."""
-        self.selected_style = style
-        
-        # Update button classes
-        for style_name, _ in self.DEFAULT_STYLES:
-            btn = self.query_one(f"#style-{style_name}", Button)
-            if style_name == style:
-                btn.add_class("selected")
-            else:
-                btn.remove_class("selected")
-        
-        self.app.notify(f"Style: {style.capitalize()}", severity="information")
-    
-    def _select_mode(self, mode: str) -> None:
-        """Select a mode (develop or morph) and update button states."""
-        self.selected_mode = mode
-        
-        # Update button classes
-        for mode_btn in ["develop", "morph"]:
-            btn = self.query_one(f"#mode-{mode_btn}", Button)
-            if mode_btn == mode:
-                btn.add_class("selected")
-            else:
-                btn.remove_class("selected")
-        
-        # Show notification
-        mode_desc = "IDE development" if mode == "morph" else "Project development"
-        self.app.notify(f"Mode: {mode_desc}", severity="information")
     
     async def _confirm_clear(self) -> None:
         """Show confirmation dialog for clearing."""

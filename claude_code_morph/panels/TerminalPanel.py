@@ -133,6 +133,9 @@ class TerminalPanel(BasePanel):
             logging.info(f"Starting query with prompt: {prompt[:100]}...")
             logging.info(f"Working directory: {working_dir}")
             
+            # Note: Removed status update task to avoid TaskGroup errors
+            # TODO: Find a better way to show progress without causing stream interruptions
+            
             async for message in query(
                 prompt=prompt,
                 options=ClaudeCodeOptions(
@@ -164,8 +167,12 @@ class TerminalPanel(BasePanel):
                             if not message_started:
                                 message_started = True
                             logging.info(f"Writing text block: {block.text[:50]}...")
+                            # Write text and ensure it displays immediately
                             self.output.write(block.text)
                             response_text += block.text
+                            # Force UI update for real-time streaming
+                            self.output.refresh()
+                            await asyncio.sleep(0)  # Yield control to update UI
                         elif isinstance(block, ToolUseBlock):
                             # Handle tool use blocks
                             if not message_started:
@@ -174,6 +181,9 @@ class TerminalPanel(BasePanel):
                             self.output.write(tool_info)
                             response_text += tool_info
                             logging.info(f"Tool use: {block.name} with id {block.id}")
+                            # Force refresh for tool use
+                            self.output.refresh()
+                            await asyncio.sleep(0)
                         else:
                             # Log unexpected block types
                             logging.warning(f"Unexpected block type in AssistantMessage: {type(block).__name__}")
@@ -252,9 +262,11 @@ class TerminalPanel(BasePanel):
             if "JSONDecodeError" in error_msg:
                 self.output.write(f"\n[yellow]Claude is processing a complex response. This may take a moment...[/yellow]")
                 logging.warning(f"JSON decode error (likely due to streaming): {error_msg}")
-            elif "unhandled errors in a TaskGroup" in error_msg or "cancel scope" in error_msg:
+            elif "response stream interrupted" in error_msg.lower() or "unhandled errors in a TaskGroup" in error_msg or "cancel scope" in error_msg:
                 # This often happens when the stream is interrupted or there's a concurrency issue
-                self.output.write(f"\n[yellow]Response stream interrupted. The command may still be executing.[/yellow]")
+                self.output.write(f"\n[yellow]⚠ Response stream interrupted[/yellow]")
+                self.output.write(f"\n[dim]The command may still be executing in the background.[/dim]")
+                self.output.write(f"\n[dim]Tip: You can check if changes were applied or try the command again.[/dim]")
                 logging.warning(f"Stream/concurrency error: {error_msg[:200]}...")
             else:
                 self.output.write(f"\n[red]Error querying Claude: {error_msg}[/red]")
@@ -264,6 +276,22 @@ class TerminalPanel(BasePanel):
             self.status.update("Status: [yellow]Partial response[/yellow]")
         finally:
             self.current_task = None
+    
+    async def _update_status_periodically(self):
+        """Update status periodically during long operations."""
+        dots = 0
+        try:
+            while True:
+                await asyncio.sleep(1)
+                dots = (dots + 1) % 4
+                status_text = "Status: [yellow]Processing" + "." * dots + " " * (3 - dots) + "[/yellow]"
+                self.status.update(status_text)
+        except asyncio.CancelledError:
+            # This is expected when the task is cancelled
+            raise
+        except Exception as e:
+            # Log but don't crash
+            logging.debug(f"Status update task error: {e}")
             
     def action_interrupt(self) -> None:
         """Interrupt current Claude query."""

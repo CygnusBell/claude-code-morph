@@ -119,8 +119,8 @@ class ClaudeCodeMorph(App):
         # Skip prompt and load default workspace directly
         self.call_later(lambda: asyncio.create_task(self.load_workspace_file("default.yaml")))
         
-        # Connect the panels after loading
-        self.call_later(self._connect_panels)
+        # Connect the panels after loading with a slight delay to ensure panels are ready
+        self.call_later(lambda: self.set_timer(0.1, self._connect_panels))
         
     async def startup_prompt(self) -> None:
         """Show startup prompt to user."""
@@ -265,6 +265,21 @@ class ClaudeCodeMorph(App):
                 # Get panel config
                 params = getattr(old_panel, '_init_params', {})
                 
+                # Preserve state from old panel
+                preserved_state = {}
+                if hasattr(old_panel, '_preserved_state'):
+                    # Save current state
+                    if hasattr(old_panel, 'selected_style'):
+                        preserved_state['selected_style'] = old_panel.selected_style
+                    if hasattr(old_panel, 'selected_mode'):
+                        preserved_state['selected_mode'] = old_panel.selected_mode
+                    if hasattr(old_panel, 'prompt_input') and old_panel.prompt_input:
+                        preserved_state['prompt_text'] = old_panel.prompt_input.text
+                    if hasattr(old_panel, 'prompt_history'):
+                        preserved_state['prompt_history'] = old_panel.prompt_history
+                    if hasattr(old_panel, 'history_index'):
+                        preserved_state['history_index'] = old_panel.history_index
+                
                 # Remove old panel
                 await old_panel.remove()
                 del self.panels[panel_id]
@@ -281,12 +296,26 @@ class ClaudeCodeMorph(App):
                 new_panel.id = panel_id
                 new_panel.classes = "panel"
                 
+                # Restore preserved state
+                if preserved_state and hasattr(new_panel, '_preserved_state'):
+                    for key, value in preserved_state.items():
+                        if hasattr(new_panel, key):
+                            setattr(new_panel, key, value)
+                
                 # Add to layout
                 container = self.query_one("#main-container", Vertical)
                 await container.mount(new_panel)
                 
                 self.panels[panel_id] = new_panel
                 self.notify(f"Reloaded panel: {panel_id}")
+                
+                # Restore prompt text after mount
+                if panel_id == "prompt" and preserved_state.get('prompt_text') and hasattr(new_panel, 'prompt_input'):
+                    new_panel.prompt_input.text = preserved_state['prompt_text']
+                
+                # Reconnect panels if this was PromptPanel or we have both panels
+                if panel_id == "prompt" or (panel_id == "terminal" and "prompt" in self.panels):
+                    self._connect_panels()
                 
             except Exception as e:
                 self.notify(f"Error reloading panel {panel_id}: {e}", severity="error")
@@ -358,9 +387,18 @@ class ClaudeCodeMorph(App):
         
         if prompt_panel and terminal_panel:
             # Set the on_submit callback
-            prompt_panel.on_submit = terminal_panel.send_prompt
-            self.notify("Panels connected successfully")
-            logging.info("Panels connected successfully")
+            if hasattr(terminal_panel, 'send_prompt'):
+                prompt_panel.on_submit = terminal_panel.send_prompt
+                self.notify("Panels connected successfully")
+                logging.info("Panels connected successfully")
+                
+                # Also update dropdown selections if needed
+                if hasattr(prompt_panel, 'style_select') and hasattr(prompt_panel, 'selected_style'):
+                    prompt_panel.style_select.value = prompt_panel.selected_style
+                if hasattr(prompt_panel, 'mode_select') and hasattr(prompt_panel, 'selected_mode'):
+                    prompt_panel.mode_select.value = prompt_panel.selected_mode
+            else:
+                logging.error("Terminal panel does not have send_prompt method")
         else:
             logging.warning(f"Could not connect panels: prompt={prompt_panel}, terminal={terminal_panel}")
             
