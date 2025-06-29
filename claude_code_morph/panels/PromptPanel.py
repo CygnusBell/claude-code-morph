@@ -43,7 +43,6 @@ class PromptPanel(BasePanel):
     PromptPanel {
         layout: vertical;
         height: 100%;
-        border: solid blue;
     }
     
     PromptPanel > Vertical {
@@ -56,14 +55,12 @@ class PromptPanel(BasePanel):
         padding: 1;
         text-align: center;
         background: $primary;
-        border: solid red;
     }
     
     PromptPanel #prompt-input {
         height: 1fr;
         min-height: 10;
         margin: 1;
-        border: solid green;
         background: $surface;
     }
     
@@ -74,14 +71,6 @@ class PromptPanel(BasePanel):
         margin: 1;
         padding: 1;
         background: $panel;
-        border: solid yellow;
-    }
-    
-    PromptPanel Grid {
-        grid-size: 5 1;
-        grid-gutter: 1;
-        height: 3;
-        margin-bottom: 1;
     }
     
     PromptPanel .button-controls {
@@ -95,8 +84,6 @@ class PromptPanel(BasePanel):
         height: 3;
         margin-bottom: 1;
         align: center middle;
-        border: solid cyan;
-        visibility: visible;
     }
     
     PromptPanel .style-label, PromptPanel .mode-label {
@@ -106,17 +93,14 @@ class PromptPanel(BasePanel):
         color: $text;
         text-style: bold;
         content-align: left middle;
-        border: solid red;
     }
     
     PromptPanel .style-button, PromptPanel .mode-button {
-        min-width: 9;
+        min-width: 7;
         height: 3;
         margin: 0 0.5;
         content-align: center middle;
         text-align: center;
-        visibility: visible;
-        display: block;
     }
     
     PromptPanel .style-button.selected, PromptPanel .mode-button.selected {
@@ -130,7 +114,7 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel Button {
-        min-width: 9;
+        min-width: 7;
         margin: 0 0.5;
         content-align: center middle;
         text-align: center;
@@ -147,7 +131,6 @@ class PromptPanel(BasePanel):
     PromptPanel #submit-btn {
         background: green;
         color: black;
-        border: solid red;
     }
     """
     
@@ -174,46 +157,43 @@ class PromptPanel(BasePanel):
         # Debug: Log CSS loading
         logging.info("PromptPanel CSS styles loading...")
         logging.info(f"CSS Hash: {hash(self.CSS)}")
+        logging.debug(f"PromptPanel initialized with on_submit={on_submit}")
         
     def compose_content(self) -> ComposeResult:
         """Create the panel layout."""
-        # Log to help debug
-        logging.debug("PromptPanel compose_content() called")
+        # Title
+        yield Static("📝 Prompt Generator", classes="panel-title")
         
-        with Vertical():
-            yield Static("📝 Prompt Generator", classes="panel-title")
+        # Prompt input area
+        self.prompt_input = TextArea(id="prompt-input")
+        yield self.prompt_input
+        
+        # Controls container
+        with Vertical(classes="controls-container"):
+            # Style row - all in one Horizontal
+            with Horizontal(classes="style-row"):
+                yield Static("Style:", classes="style-label")
+                yield Button("Verbose", id="style-verbose", classes="style-button selected", name="style-verbose")
+                yield Button("Concise", id="style-concise", classes="style-button", name="style-concise")
+                yield Button("Debugger", id="style-debugger", classes="style-button", name="style-debugger")
+                yield Button("Architect", id="style-architect", classes="style-button", name="style-architect")
+                yield Button("Refactor", id="style-refactor", classes="style-button", name="style-refactor")
             
-            # Prompt input area
-            self.prompt_input = TextArea(
-                id="prompt-input"
-            )
-            yield self.prompt_input
+            # Mode row - all in one Horizontal  
+            with Horizontal(classes="mode-row"):
+                yield Static("Mode:", classes="mode-label")
+                yield Button("Develop", id="mode-develop", classes="mode-button selected", name="mode-develop")
+                yield Button("Morph", id="mode-morph", classes="mode-button", name="mode-morph")
             
-            # Controls container
-            with Vertical(classes="controls-container"):
-                # Style row
-                with Horizontal(classes="style-row"):
-                    yield Static("Style:", classes="style-label")
-                    yield Button("Verbose", id="style-verbose", classes="style-button selected")
-                    yield Button("Concise", id="style-concise", classes="style-button")
-                    yield Button("Debugger", id="style-debugger", classes="style-button")
-                    yield Button("Architect", id="style-architect", classes="style-button")
-                    yield Button("Refactor", id="style-refactor", classes="style-button")
-                
-                # Mode row
-                with Horizontal(classes="mode-row"):
-                    yield Static("Mode:", classes="mode-label")
-                    yield Button("Develop", id="mode-develop", classes="mode-button selected")
-                    yield Button("Morph", id="mode-morph", classes="mode-button")
-                
-                self.selected_style = "verbose"
-                self.selected_mode = "develop"
-                        
-                # Action buttons row
-                with Horizontal(classes="button-controls"):
-                    yield Button("Submit", variant="primary", id="submit-btn")
-                    yield Button("Improve", variant="default", id="optimize-btn")
-                    yield Button("Clear", id="clear-btn", classes="clear-button")
+            # Action buttons row
+            with Horizontal(classes="button-controls"):
+                yield Button("Submit", variant="primary", id="submit-btn")
+                yield Button("Improve", variant="default", id="optimize-btn")
+                yield Button("Clear", id="clear-btn", classes="clear-button")
+        
+        # Initialize after composition
+        self.selected_style = "verbose"
+        self.selected_mode = "develop"
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -228,6 +208,9 @@ class PromptPanel(BasePanel):
         elif button_id and button_id.startswith("style-"):
             # Handle style button clicks
             self._select_style(button_id[6:])  # Remove "style-" prefix
+        elif button_id and button_id.startswith("mode-"):
+            # Handle mode button clicks
+            self._select_mode(button_id[5:])  # Remove "mode-" prefix
     
             
     def on_key(self, event) -> None:
@@ -312,11 +295,12 @@ class PromptPanel(BasePanel):
             optimized = await self._call_optimizer(prompt, style)
             self.app.notify("Prompt improved!", severity="success")
             
-            # Submit the optimized prompt directly
+            # Submit the optimized prompt directly with current mode
+            mode = getattr(self, 'selected_mode', 'develop')
             if self.on_submit:
-                await self._async_submit(optimized)
+                await self._async_submit(optimized, mode)
             else:
-                await self._send_to_terminal(optimized)
+                await self._send_to_terminal(optimized, mode)
                 
             # Clear input after submission
             self.prompt_input.text = ""

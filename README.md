@@ -11,6 +11,14 @@ A modular, live-editable development environment powered by Claude CLI. This sel
 - **Workspace Management**: Save and load custom UI layouts
 - **Modular Architecture**: Easy to extend with new panels
 
+## ⚠️ Important: Package Structure
+
+This is a **Python package**. The actual code lives in the `claude_code_morph/` subdirectory:
+- **Source files**: `claude_code_morph/panels/`, `claude_code_morph/main.py`, etc.
+- **NOT** in root-level directories
+
+See [DEVELOPER_NOTES.md](DEVELOPER_NOTES.md) for detailed information about the project structure.
+
 ## Prerequisites
 
 - Python 3.8+
