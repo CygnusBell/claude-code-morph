@@ -39,7 +39,7 @@ class PromptPanel(BasePanel):
         Binding("cmd+a", "select_all_in_panel", "Select All", priority=True, show=False),
     ]
     
-    CSS = """
+    CSS = BasePanel.DEFAULT_CSS + """
     PromptPanel {
         layout: vertical;
         height: 100%;
@@ -89,22 +89,13 @@ class PromptPanel(BasePanel):
     }
     
     # Style and Mode controls
-    PromptPanel .controls-row {
-        layout: horizontal;
-        height: auto;
-        margin: 1 0;
-    }
-    
     PromptPanel .style-label, PromptPanel .mode-label {
-        width: 6;
+        width: auto;
         padding: 0 1;
+        margin-top: 1;
         color: $text;
         text-style: bold;
-        content-align: center middle;
-    }
-    
-    PromptPanel .mode-label {
-        margin-left: 2;
+        content-align: left middle;
     }
     
     PromptPanel .style-button-row, PromptPanel .mode-button-row {
@@ -113,7 +104,7 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel .style-button, PromptPanel .mode-button {
-        min-width: 10;
+        min-width: 7;
         height: 3;
         margin: 0 0.5;
     }
@@ -129,7 +120,7 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel Button {
-        min-width: 10;
+        min-width: 7;
         margin: 0 1;
     }
     
@@ -192,22 +183,20 @@ class PromptPanel(BasePanel):
             
             # Controls container
             with Vertical(classes="controls-container"):
-                # Style and Mode controls in same row
-                with Horizontal(classes="controls-row"):
-                    # Style section
-                    yield Static("Style:", classes="style-label")
-                    with Horizontal(classes="style-button-row"):
-                        yield Button("Verbose", id="style-verbose", classes="style-button selected")
-                        yield Button("Concise", id="style-concise", classes="style-button")
-                        yield Button("Debugger", id="style-debugger", classes="style-button")
-                        yield Button("Architect", id="style-architect", classes="style-button")
-                        yield Button("Refactor", id="style-refactor", classes="style-button")
-                    
-                    # Mode section
-                    yield Static("Mode:", classes="mode-label")
-                    with Horizontal(classes="mode-button-row"):
-                        yield Button("Develop", id="mode-develop", classes="mode-button selected")
-                        yield Button("Morph", id="mode-morph", classes="mode-button")
+                # Style section
+                yield Static("Style:", classes="style-label")
+                with Horizontal(classes="style-button-row"):
+                    yield Button("Verbose", id="style-verbose", classes="style-button selected")
+                    yield Button("Concise", id="style-concise", classes="style-button")
+                    yield Button("Debugger", id="style-debugger", classes="style-button")
+                    yield Button("Architect", id="style-architect", classes="style-button")
+                    yield Button("Refactor", id="style-refactor", classes="style-button")
+                
+                # Mode section
+                yield Static("Mode:", classes="mode-label")
+                with Horizontal(classes="mode-button-row"):
+                    yield Button("Develop", id="mode-develop", classes="mode-button selected")
+                    yield Button("Morph", id="mode-morph", classes="mode-button")
                 
                 self.selected_style = "verbose"
                 self.selected_mode = "develop"

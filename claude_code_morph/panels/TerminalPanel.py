@@ -17,6 +17,8 @@ from panels.BasePanel import BasePanel
 class TerminalPanel(BasePanel):
     """Panel that interacts with Claude via the SDK."""
     
+    CSS = BasePanel.DEFAULT_CSS
+    
     BINDINGS = BasePanel.BINDINGS + [
         Binding("ctrl+k", "interrupt", "Interrupt"),
         Binding("ctrl+r", "restart", "Restart Session"),
@@ -32,7 +34,7 @@ class TerminalPanel(BasePanel):
         self.current_task: Optional[asyncio.Task] = None
         self.conversation_history = []
         
-    def compose(self) -> ComposeResult:
+    def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
         with Vertical():
             yield Static("🖥️ Claude Terminal", classes="panel-title")
@@ -52,7 +54,7 @@ class TerminalPanel(BasePanel):
             yield self.status
             
         # Debug output
-        logging.debug("TerminalPanel compose() called")
+        logging.debug("TerminalPanel compose_content() called")
             
     async def on_mount(self) -> None:
         """Called when panel is mounted."""
