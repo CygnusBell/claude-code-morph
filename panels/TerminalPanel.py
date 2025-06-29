@@ -60,9 +60,14 @@ class TerminalPanel(BasePanel):
         self.output.write(f"[dim]Working directory: {os.getcwd()}[/dim]")
         self.output.write("[green]Send a message using the prompt panel above.[/green]")
         
-    async def send_prompt(self, prompt: str) -> None:
-        """Send a prompt to Claude via SDK."""
-        logging.info(f"send_prompt called with: {prompt[:100]}...")
+    async def send_prompt(self, prompt: str, mode: str = "develop") -> None:
+        """Send a prompt to Claude via SDK.
+        
+        Args:
+            prompt: The user's prompt
+            mode: Either 'develop' or 'morph'
+        """
+        logging.info(f"send_prompt called with: {prompt[:100]}... mode={mode}")
         
         if self.current_task and not self.current_task.done():
             self.output.write("[red]Claude is still processing. Please wait...[/red]")
@@ -76,33 +81,34 @@ class TerminalPanel(BasePanel):
         # Add to conversation history
         self.conversation_history.append({"role": "user", "content": prompt})
         
-        # Check if this is a "morph" command
-        processed_prompt = self._process_morph_command(prompt)
+        # Process based on mode
+        processed_prompt = self._process_prompt_with_mode(prompt, mode)
         
         # Create the query task
         self.current_task = asyncio.create_task(self._query_claude(processed_prompt))
         
-    def _process_morph_command(self, prompt: str) -> str:
-        """Process morph commands to redirect to Claude Code Morph source.
+    def _process_prompt_with_mode(self, prompt: str, mode: str) -> str:
+        """Process prompt based on the selected mode.
         
-        If the prompt contains 'morph' (case-insensitive), it will be modified
-        to explicitly work on the Claude Code Morph source files.
+        Args:
+            prompt: The user's prompt
+            mode: Either 'develop' or 'morph'
         """
-        # Check if "morph" appears in the prompt (case-insensitive)
-        if 'morph' in prompt.lower():
+        if mode == 'morph':
             # Get the Claude Code Morph source directory
-            morph_dir = Path(__file__).parent.parent.absolute()
+            morph_dir = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute()
             
             # Add context to the prompt
-            morph_context = f"\n\n[IMPORTANT: This is a 'morph' command. Please work on the Claude Code Morph source files located at {morph_dir}, NOT the current working directory. The user wants to modify the IDE itself.]"
+            morph_context = f"\n\n[IMPORTANT: This is a 'morph' mode command. Please work on the Claude Code Morph source files located at {morph_dir}, NOT the current working directory. The user wants to modify the IDE itself.]"
             
-            # Log the morph command detection
-            logging.info(f"Morph command detected: {prompt}")
-            self.output.write("[dim italic]→ Morph command detected - targeting IDE source files[/dim italic]")
+            # Log the mode
+            logging.info(f"Morph mode active for: {prompt}")
+            self.output.write("[dim italic]→ Morph mode - targeting IDE source files[/dim italic]")
             
             return prompt + morph_context
         
-        # Return unmodified prompt for regular commands
+        # For develop mode, return unmodified prompt
+        logging.info(f"Develop mode active for: {prompt}")
         return prompt
         
     async def _query_claude(self, prompt: str) -> None:
@@ -114,10 +120,12 @@ class TerminalPanel(BasePanel):
             message_started = False
             message_count = 0
             
-            # Determine the working directory based on whether this is a morph command
-            morph_dir = str(Path(__file__).parent.parent.absolute())
-            is_morph_command = "[IMPORTANT: This is a 'morph' command" in prompt
-            working_dir = morph_dir if is_morph_command else os.getcwd()
+            # Determine the working directory based on whether this is a morph mode command
+            morph_dir = str(Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute())
+            is_morph_mode = "[IMPORTANT: This is a 'morph' mode command" in prompt
+            # For morph mode, use morph source dir; otherwise use user's working dir
+            user_cwd = os.environ.get("MORPH_USER_CWD", os.getcwd())
+            working_dir = morph_dir if is_morph_mode else user_cwd
             
             # Query Claude with streaming
             logging.info(f"Starting query with prompt: {prompt[:100]}...")
@@ -228,9 +236,9 @@ class TerminalPanel(BasePanel):
             # Ensure we end with a newline
             self.output.write("")
             
-            # Update status based on whether it was a morph command
-            if is_morph_command:
-                self.status.update("Status: [green]Ready[/green] [dim](last: morph command)[/dim]")
+            # Update status based on whether it was a morph mode command
+            if is_morph_mode:
+                self.status.update("Status: [green]Ready[/green] [dim](last: morph mode)[/dim]")
             else:
                 self.status.update("Status: [green]Ready[/green]")
             

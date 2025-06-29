@@ -88,27 +88,44 @@ class PromptPanel(BasePanel):
         layout: horizontal;
     }
     
-    PromptPanel .style-label {
-        width: auto;
-        margin-bottom: 1;
+    # Style and Mode controls
+    PromptPanel .controls-row {
+        layout: horizontal;
+        height: auto;
+        margin: 1 0;
+    }
+    
+    PromptPanel .style-label, PromptPanel .mode-label {
+        width: 6;
+        padding: 0 1;
+        color: $text;
+        text-style: bold;
         content-align: center middle;
     }
     
-    PromptPanel .style-button-row {
+    PromptPanel .mode-label {
+        margin-left: 2;
+    }
+    
+    PromptPanel .style-button-row, PromptPanel .mode-button-row {
         height: 3;
-        margin-bottom: 1;
         layout: horizontal;
     }
     
-    PromptPanel .style-button {
+    PromptPanel .style-button, PromptPanel .mode-button {
         min-width: 10;
         height: 3;
         margin: 0 0.5;
     }
     
-    PromptPanel .style-button.selected {
+    PromptPanel .style-button.selected, PromptPanel .mode-button.selected {
         background: $primary;
         color: $text;
+        text-style: bold;
+    }
+    
+    PromptPanel .style-button:hover, PromptPanel .mode-button:hover {
+        background: $primary-lighten-1;
     }
     
     PromptPanel Button {
@@ -159,13 +176,10 @@ class PromptPanel(BasePanel):
         logging.info("PromptPanel CSS styles loading...")
         logging.info(f"CSS Hash: {hash(self.CSS)}")
         
-    def compose(self) -> ComposeResult:
+    def compose_content(self) -> ComposeResult:
         """Create the panel layout."""
         # Log to help debug
-        logging.debug("PromptPanel compose() called")
-        
-        # Show notification to confirm new code is loaded
-        self.app.notify("PromptPanel loaded with PURPLE clear button!", severity="information")
+        logging.debug("PromptPanel compose_content() called")
         
         with Vertical():
             yield Static("📝 Prompt Generator", classes="panel-title")
@@ -178,18 +192,25 @@ class PromptPanel(BasePanel):
             
             # Controls container
             with Vertical(classes="controls-container"):
-                # Add style label
-                yield Static("Style:", classes="style-label")
-                
-                # Style buttons in their own Horizontal container
-                with Horizontal(classes="style-button-row"):
-                    yield Button("Verbose", id="style-verbose", classes="style-button selected")
-                    yield Button("Concise", id="style-concise", classes="style-button")
-                    yield Button("Debugger", id="style-debugger", classes="style-button")
-                    yield Button("Architect", id="style-architect", classes="style-button")
-                    yield Button("Refactor", id="style-refactor", classes="style-button")
+                # Style and Mode controls in same row
+                with Horizontal(classes="controls-row"):
+                    # Style section
+                    yield Static("Style:", classes="style-label")
+                    with Horizontal(classes="style-button-row"):
+                        yield Button("Verbose", id="style-verbose", classes="style-button selected")
+                        yield Button("Concise", id="style-concise", classes="style-button")
+                        yield Button("Debugger", id="style-debugger", classes="style-button")
+                        yield Button("Architect", id="style-architect", classes="style-button")
+                        yield Button("Refactor", id="style-refactor", classes="style-button")
+                    
+                    # Mode section
+                    yield Static("Mode:", classes="mode-label")
+                    with Horizontal(classes="mode-button-row"):
+                        yield Button("Develop", id="mode-develop", classes="mode-button selected")
+                        yield Button("Morph", id="mode-morph", classes="mode-button")
                 
                 self.selected_style = "verbose"
+                self.selected_mode = "develop"
                         
                 # Action buttons on their own line
                 with Horizontal(classes="button-controls"):
@@ -246,23 +267,24 @@ class PromptPanel(BasePanel):
         # Use the prompt directly
         final_prompt = prompt
         
-        # Call submit handler
+        # Call submit handler with mode
+        mode = getattr(self, 'selected_mode', 'develop')
         if self.on_submit:
-            # Run async callback
-            task = asyncio.create_task(self._async_submit(final_prompt))
+            # Run async callback with mode
+            task = asyncio.create_task(self._async_submit(final_prompt, mode))
             task.add_done_callback(self._handle_task_error)
         else:
-            # Notify terminal panel directly
-            asyncio.create_task(self._send_to_terminal(final_prompt))
+            # Notify terminal panel directly with mode
+            asyncio.create_task(self._send_to_terminal(final_prompt, mode))
             
         # Clear input
         self.prompt_input.text = ""
         
-    async def _async_submit(self, prompt: str) -> None:
+    async def _async_submit(self, prompt: str, mode: str) -> None:
         """Handle async submission."""
-        await self.on_submit(prompt)
+        await self.on_submit(prompt, mode)
         
-    async def _send_to_terminal(self, prompt: str) -> None:
+    async def _send_to_terminal(self, prompt: str, mode: str) -> None:
         """Send prompt to terminal panel."""
         # Find terminal panel
         terminal = None
@@ -272,7 +294,7 @@ class PromptPanel(BasePanel):
                 break
                 
         if terminal and hasattr(terminal, 'send_prompt'):
-            await terminal.send_prompt(prompt)
+            await terminal.send_prompt(prompt, mode)
         else:
             self.app.notify("Terminal panel not found", severity="error")
             
@@ -415,6 +437,22 @@ Output only the enhanced prompt, nothing else."""
                 btn.remove_class("selected")
         
         self.app.notify(f"Style: {style.capitalize()}", severity="information")
+    
+    def _select_mode(self, mode: str) -> None:
+        """Select a mode (develop or morph) and update button states."""
+        self.selected_mode = mode
+        
+        # Update button classes
+        for mode_btn in ["develop", "morph"]:
+            btn = self.query_one(f"#mode-{mode_btn}", Button)
+            if mode_btn == mode:
+                btn.add_class("selected")
+            else:
+                btn.remove_class("selected")
+        
+        # Show notification
+        mode_desc = "IDE development" if mode == "morph" else "Project development"
+        self.app.notify(f"Mode: {mode_desc}", severity="information")
     
     async def _confirm_clear(self) -> None:
         """Show confirmation dialog for clearing."""

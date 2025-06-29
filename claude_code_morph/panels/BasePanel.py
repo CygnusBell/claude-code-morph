@@ -6,6 +6,8 @@ from typing import Optional
 from textual.widgets import Static
 from textual.binding import Binding
 from textual.events import Click
+from textual.app import ComposeResult
+from textual.containers import Horizontal
 from rich.console import Group
 from rich.text import Text
 
@@ -48,6 +50,24 @@ except ImportError:
 class BasePanel(Static):
     """Base panel class with common functionality including copy/paste support."""
     
+    DEFAULT_CSS = """
+    BasePanel {
+        layout: vertical;
+    }
+    
+    .panel-header {
+        height: 1;
+        background: $boost;
+        padding: 0 1;
+    }
+    
+    .panel-name {
+        text-align: right;
+        color: $text-muted;
+        text-style: italic;
+    }
+    """
+    
     BINDINGS = [
         # Using Cmd+C for copy to match macOS convention and avoid terminal interrupt
         Binding("cmd+c", "copy_selected", "Copy", priority=True, show=True),
@@ -63,6 +83,21 @@ class BasePanel(Static):
         self.selection_start: Optional[tuple] = None
         self.selection_end: Optional[tuple] = None
         self.is_selecting = False
+        
+    def compose(self) -> ComposeResult:
+        """Create the base panel layout with panel name."""
+        # Add panel header with name
+        with Horizontal(classes="panel-header"):
+            yield Static(f"{self.__class__.__name__}", classes="panel-name")
+        
+        # Subclasses should override compose_content to add their content
+        if hasattr(self, 'compose_content'):
+            yield from self.compose_content()
+    
+    def compose_content(self) -> ComposeResult:
+        """Override this method in subclasses to add panel content."""
+        # Default empty implementation
+        return []
         
     def get_copyable_content(self) -> str:
         """Get the content that can be copied from this panel.
