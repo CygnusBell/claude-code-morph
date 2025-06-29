@@ -89,24 +89,27 @@ class PromptPanel(BasePanel):
     }
     
     # Style and Mode controls
-    PromptPanel .style-label, PromptPanel .mode-label {
-        width: auto;
-        padding: 0 1;
-        margin-top: 1;
-        color: $text;
-        text-style: bold;
-        content-align: left middle;
+    PromptPanel .style-row, PromptPanel .mode-row {
+        layout: horizontal;
+        height: 3;
+        margin-bottom: 1;
+        align: center middle;
     }
     
-    PromptPanel .style-button-row, PromptPanel .mode-button-row {
-        height: 3;
-        layout: horizontal;
+    PromptPanel .style-label, PromptPanel .mode-label {
+        width: 6;
+        padding: 0 1;
+        color: $text;
+        text-style: bold;
+        content-align: center middle;
     }
     
     PromptPanel .style-button, PromptPanel .mode-button {
-        min-width: 7;
+        min-width: 9;
         height: 3;
         margin: 0 0.5;
+        content-align: center middle;
+        text-align: center;
     }
     
     PromptPanel .style-button.selected, PromptPanel .mode-button.selected {
@@ -120,20 +123,18 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel Button {
-        min-width: 7;
-        margin: 0 1;
+        min-width: 9;
+        margin: 0 0.5;
+        content-align: center middle;
+        text-align: center;
     }
     
-    PromptPanel Button#clear-btn {
+    PromptPanel Button#clear-btn, PromptPanel .clear-button {
         background: red !important;
         color: white !important;
         border: solid darkred !important;
-    }
-    
-    PromptPanel .clear-button {
-        background: red !important;
-        color: white !important;
-        border: solid darkred !important;
+        content-align: center middle;
+        text-align: center;
     }
     
     PromptPanel #submit-btn {
@@ -183,35 +184,29 @@ class PromptPanel(BasePanel):
             
             # Controls container
             with Vertical(classes="controls-container"):
-                # Style section
-                yield Static("Style:", classes="style-label")
-                with Horizontal(classes="style-button-row"):
+                # Style row
+                with Horizontal(classes="style-row"):
+                    yield Static("Style:", classes="style-label")
                     yield Button("Verbose", id="style-verbose", classes="style-button selected")
                     yield Button("Concise", id="style-concise", classes="style-button")
                     yield Button("Debugger", id="style-debugger", classes="style-button")
                     yield Button("Architect", id="style-architect", classes="style-button")
                     yield Button("Refactor", id="style-refactor", classes="style-button")
                 
-                # Mode section
-                yield Static("Mode:", classes="mode-label")
-                with Horizontal(classes="mode-button-row"):
+                # Mode row
+                with Horizontal(classes="mode-row"):
+                    yield Static("Mode:", classes="mode-label")
                     yield Button("Develop", id="mode-develop", classes="mode-button selected")
                     yield Button("Morph", id="mode-morph", classes="mode-button")
                 
                 self.selected_style = "verbose"
                 self.selected_mode = "develop"
                         
-                # Action buttons on their own line
+                # Action buttons row
                 with Horizontal(classes="button-controls"):
                     yield Button("Submit", variant="primary", id="submit-btn")
                     yield Button("Improve", variant="default", id="optimize-btn")
-                    # Create clear button with explicit red background
-                    clear_btn = Button("Clear", id="clear-btn", classes="clear-button")
-                    # Set individual style properties
-                    clear_btn.styles.background = "red"
-                    clear_btn.styles.color = "white"
-                    clear_btn.styles.border = ("solid", "darkred")
-                    yield clear_btn
+                    yield Button("Clear", id="clear-btn", classes="clear-button")
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
