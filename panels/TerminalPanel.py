@@ -170,12 +170,28 @@ class TerminalPanel(BasePanel):
                 elif isinstance(message, UserMessage):
                     # Handle UserMessage (tool responses)
                     logging.info(f"Processing UserMessage")
-                    # UserMessage.content is a string, not blocks
+                    # UserMessage.content can be either string or list
                     if message.content:
                         if not message_started:
                             message_started = True
-                        self.output.write(f"[dim]{message.content}[/dim]\n")
-                        response_text += message.content
+                        
+                        # Handle both string and list content
+                        if isinstance(message.content, str):
+                            self.output.write(f"[dim]{message.content}[/dim]\n")
+                            response_text += message.content
+                        elif isinstance(message.content, list):
+                            # Handle list of content blocks (tool results)
+                            for block in message.content:
+                                if isinstance(block, ToolResultBlock):
+                                    if block.content:
+                                        content_str = str(block.content)
+                                        self.output.write(f"[dim]{content_str}[/dim]\n")
+                                        response_text += content_str + "\n"
+                                else:
+                                    # Fallback for other block types
+                                    block_str = str(block)
+                                    self.output.write(f"[dim]{block_str}[/dim]\n")
+                                    response_text += block_str + "\n"
                 elif isinstance(message, dict):
                     # Handle legacy dict format
                     if message.get("type") == "text":

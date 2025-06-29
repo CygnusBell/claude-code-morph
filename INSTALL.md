@@ -3,54 +3,47 @@
 ## Prerequisites
 
 - Python 3.8 or higher
-- pip (Python package installer)
+- An active virtual environment (recommended)
+- Claude CLI installed and configured
 
-## Installation Methods
+## Standard Installation
 
-### 1. Install from source (Recommended for developers)
+### For Most Developers
 
 ```bash
-# Clone the repository
+# Make sure you're in a virtual environment
+# If not, create one:
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install from GitHub
+pip install git+https://github.com/yourusername/claude-code-morph.git
+
+# Or install from local source
 git clone https://github.com/yourusername/claude-code-morph.git
-cd claude-code-morph
+pip install -e ./claude-code-morph
 
-# Install in editable mode (for development)
-pip install -e .
-
-# Or for a regular installation
-pip install .
+# Run morph
+morph
 ```
 
-### 2. Install with pip3 (if pip is not available)
+### For Project Integration
 
-```bash
-# If you only have pip3 available
-pip3 install -e .
-
-# Or
-python3 -m pip install -e .
+Add to your project's requirements.txt:
+```
+git+https://github.com/yourusername/claude-code-morph.git
 ```
 
-### 3. Install in virtual environment (Cleanest approach)
-
-```bash
-# Create a virtual environment
-python -m venv morph-env
-source morph-env/bin/activate  # On Windows: morph-env\Scripts\activate
-
-# Install
-pip install -e .
+Or requirements-dev.txt for development dependencies:
+```
+-e git+https://github.com/yourusername/claude-code-morph.git#egg=claude-code-morph
 ```
 
-### 4. Install globally without sudo
+## Future: PyPI Installation
 
+Once published to PyPI, installation will be even simpler:
 ```bash
-# Install to user directory
-pip install --user .
-
-# Make sure ~/.local/bin is in your PATH
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
+pip install claude-code-morph
 ```
 
 ## Verifying Installation
@@ -82,6 +75,28 @@ If you get this error, try:
 - `pip3` instead of `pip`
 - `python -m pip` or `python3 -m pip`
 - Install pip: `sudo apt install python3-pip` (Ubuntu/Debian)
+
+### "error: externally-managed-environment"
+
+This error occurs on Ubuntu 23.04+ and Debian 12+. Solutions:
+
+1. **Use a virtual environment** (recommended):
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -e .
+   ```
+
+2. **Use pipx** for CLI tools:
+   ```bash
+   sudo apt install pipx
+   pipx install -e .
+   ```
+
+3. **Override the protection** (use carefully):
+   ```bash
+   pip install --user -e . --break-system-packages
+   ```
 
 ### "morph: command not found"
 

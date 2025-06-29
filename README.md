@@ -22,27 +22,34 @@ A modular, live-editable development environment powered by Claude CLI. This sel
 
 ## Installation
 
-### Quick Install
+### Installation
+
 ```bash
-# Clone and install
+# Clone the repository
 git clone https://github.com/yourusername/claude-code-morph.git
 cd claude-code-morph
+
+# If you're in a virtual environment (recommended):
 pip install -e .
 
-# Run from anywhere
+# Run morph
 morph
 ```
 
-### Alternative Installation Methods
+### For Development Projects
+
+If you're working on a project and want to use morph:
+
 ```bash
-# If you only have pip3
-pip3 install -e .
+# In your project directory with an active venv:
+pip install git+https://github.com/yourusername/claude-code-morph.git
 
-# Install without sudo (user install)
-pip install --user -e .
+# Or for editable install:
+git clone https://github.com/yourusername/claude-code-morph.git
+pip install -e ./claude-code-morph
 
-# Using Python directly
-python -m pip install -e .
+# Now morph is available in your project's venv
+morph
 ```
 
 ## Usage
