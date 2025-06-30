@@ -91,31 +91,30 @@ class TerminalWidget(Static):
         lines = []
         cursor_y = self.term_screen.cursor.y
         
-        # Show all lines up to cursor position plus a few more
-        max_y = max(cursor_y + 5, self.term_screen.lines)
-        
-        for y in range(min(max_y, self.term_screen.lines)):
+        # Show all lines in the terminal
+        for y in range(self.term_screen.lines):
             line = ""
             for x in range(self.term_screen.columns):
                 char = self.term_screen.buffer[y][x]
                 line += char.data or " "
             lines.append(line.rstrip())
             
-        # Remove trailing empty lines but keep at least up to cursor
-        while len(lines) > cursor_y + 1 and not lines[-1]:
-            lines.pop()
-            
-        # Ensure we have at least cursor_y + 1 lines
-        while len(lines) <= cursor_y:
-            lines.append("")
-            
-        # Add cursor indicator for debugging
-        if cursor_y < len(lines):
-            cursor_x = self.term_screen.cursor.x
-            if cursor_x < len(lines[cursor_y]):
-                # Show cursor position with a special marker
-                line = lines[cursor_y]
-                # Note: We'll just update the display, not modify the actual line
+        # Find the last non-empty line
+        last_content_line = 0
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].strip():
+                last_content_line = i
+                break
+                
+        # Keep lines up to the last content line or cursor position (whichever is greater)
+        keep_until = max(last_content_line, cursor_y) + 1
+        lines = lines[:keep_until]
+        
+        # Log what we're displaying for debugging
+        if lines:
+            logging.debug(f"Displaying {len(lines)} lines, cursor at y={cursor_y}, x={self.term_screen.cursor.x}")
+            if cursor_y < len(lines):
+                logging.debug(f"Cursor line content: {repr(lines[cursor_y])}")
             
         # Update display
         self.update("\n".join(lines))
@@ -291,6 +290,8 @@ class TerminalPanel(BasePanel):
                     logging.info(f"Claude CLI process {pid} is running")
                     # Force a refresh after initialization
                     if self.terminal_widget:
+                        # Add initial message to show terminal is ready
+                        self.terminal_widget.feed(b"Claude CLI started successfully. Waiting for initialization...\r\n")
                         self.terminal_widget.refresh_display()
                 except ProcessLookupError:
                     logging.error(f"Claude CLI process {pid} died immediately")
@@ -390,12 +391,6 @@ class TerminalPanel(BasePanel):
             # Send prompt to Claude CLI
             data = processed_prompt.encode('utf-8')
             
-            # First, add a visual separator and show what we're sending
-            separator = b"\r\n" + b"=" * 80 + b"\r\n"
-            self.terminal_widget.feed(separator)
-            self.terminal_widget.feed(b"Sending prompt to Claude CLI...\r\n")
-            self.terminal_widget.feed(b"-" * 80 + b"\r\n")
-            
             # Send the prompt
             os.write(self.pty_master, data)
             # Now send newline to submit
@@ -404,14 +399,20 @@ class TerminalPanel(BasePanel):
             # Update status
             self.status.update(f"Status: [yellow]Processing...[/yellow] ({len(prompt)} chars)")
             
-            # Force a display refresh
-            if self.terminal_widget:
-                self.terminal_widget.refresh_display()
+            # Force a display refresh after a short delay to ensure Claude has responded
+            import asyncio
+            asyncio.create_task(self._delayed_refresh())
             
         except Exception as e:
             if self.terminal_widget:
                 self.terminal_widget.feed(f"\r\nError sending prompt: {e}\r\n".encode())
             logging.error(f"Error sending prompt: {e}")
+            
+    async def _delayed_refresh(self) -> None:
+        """Refresh the display after a short delay."""
+        await asyncio.sleep(0.5)
+        if self.terminal_widget:
+            self.terminal_widget.refresh_display()
             
     def _process_prompt_with_mode(self, prompt: str, mode: str) -> str:
         """Process prompt based on the selected mode."""
