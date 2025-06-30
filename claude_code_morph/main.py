@@ -93,6 +93,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+r", "reload_all", "Reload All Panels"),
+        Binding("ctrl+t", "focus_terminal", "Focus Terminal"),
     ]
     
     def __init__(self):
@@ -394,6 +395,15 @@ class ClaudeCodeMorph(App):
         
         for panel_type in panel_types:
             self.call_from_thread(self.reload_panel, panel_type)
+    
+    def action_focus_terminal(self) -> None:
+        """Focus the terminal panel."""
+        terminal_panel = self.panels.get("terminal")
+        if terminal_panel:
+            terminal_panel.focus()
+            self.notify("Terminal focused - type to interact with Claude", severity="information")
+        else:
+            self.notify("No terminal panel found", severity="warning")
     
     def _connect_panels(self) -> None:
         """Connect the prompt panel to the terminal panel."""
