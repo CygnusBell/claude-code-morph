@@ -1,69 +1,376 @@
-"""Terminal Panel - Manages Claude interaction via SDK."""
+"""Terminal Panel - Full terminal emulator for Claude CLI."""
 
 import os
-import asyncio
-from typing import Optional
+import sys
+import pty
+import select
+import fcntl
+import termios
+import struct
+import threading
+import signal
+from typing import Optional, List
 from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Static, RichLog
+from textual.widgets import Static
 from textual.binding import Binding
-from rich.text import Text
-from rich.console import Console
-from claude_code_sdk import query, ClaudeCodeOptions, AssistantMessage, TextBlock, SystemMessage, ToolUseBlock, ToolResultBlock, UserMessage, ResultMessage
+from textual.reactive import reactive
 import logging
+import asyncio
 from panels.BasePanel import BasePanel
 
-class TerminalPanel(BasePanel):
-    """Panel that interacts with Claude via the SDK."""
+try:
+    import pyte
+    PYTE_AVAILABLE = True
+except ImportError:
+    PYTE_AVAILABLE = False
+
+class TerminalWidget(Static):
+    """Custom terminal widget that displays terminal screen."""
     
-    CSS = BasePanel.DEFAULT_CSS
+    can_focus = True  # Make the widget focusable
+    
+    def __init__(self, rows: int = 24, cols: int = 80, **kwargs):
+        super().__init__("", **kwargs)
+        self.rows = rows
+        self.cols = cols
+        self.buffer = []  # Simple line buffer for fallback
+        self.pty_master = None  # Will be set by parent
+        self.add_class("terminal-content")  # Ensure monospace font
+        
+        if PYTE_AVAILABLE:
+            # Create virtual terminal screen - renamed to avoid conflict with Textual's screen property
+            self.term_screen = pyte.Screen(cols, rows)
+            self.term_stream = pyte.ByteStream(self.term_screen)
+        else:
+            self.term_screen = None
+            self.term_stream = None
+            
+    def feed(self, data: bytes) -> None:
+        """Feed data to the terminal emulator."""
+        if self.term_stream:
+            self.term_stream.feed(data)
+            self.refresh_display()
+        else:
+            # Fallback: Simple text display
+            text = data.decode('utf-8', errors='replace')
+            # Basic ANSI stripping
+            import re
+            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            clean_text = ansi_escape.sub('', text)
+            
+            # Handle carriage returns and newlines
+            lines = clean_text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+            
+            for i, line in enumerate(lines):
+                if i == len(lines) - 1 and not line.endswith('\n'):
+                    # Incomplete line - append to last buffer line
+                    if self.buffer:
+                        self.buffer[-1] += line
+                    else:
+                        self.buffer.append(line)
+                else:
+                    if line:  # Only add non-empty lines
+                        self.buffer.append(line)
+                        
+            # Keep only last N lines
+            max_lines = self.rows * 2
+            if len(self.buffer) > max_lines:
+                self.buffer = self.buffer[-max_lines:]
+                
+            # Update display
+            self.update('\n'.join(self.buffer))
+            
+    def refresh_display(self) -> None:
+        """Update the display with current terminal content."""
+        if not self.term_screen:
+            return
+            
+        # Build the display from screen buffer
+        lines = []
+        cursor_y = self.term_screen.cursor.y
+        
+        # Show all lines up to cursor position plus a few more
+        max_y = max(cursor_y + 5, self.term_screen.lines)
+        
+        for y in range(min(max_y, self.term_screen.lines)):
+            line = ""
+            for x in range(self.term_screen.columns):
+                char = self.term_screen.buffer[y][x]
+                line += char.data or " "
+            lines.append(line.rstrip())
+            
+        # Remove trailing empty lines but keep at least up to cursor
+        while len(lines) > cursor_y + 1 and not lines[-1]:
+            lines.pop()
+            
+        # Ensure we have at least cursor_y + 1 lines
+        while len(lines) <= cursor_y:
+            lines.append("")
+            
+        # Add cursor indicator for debugging
+        if cursor_y < len(lines):
+            cursor_x = self.term_screen.cursor.x
+            if cursor_x < len(lines[cursor_y]):
+                # Show cursor position with a special marker
+                line = lines[cursor_y]
+                # Note: We'll just update the display, not modify the actual line
+            
+        # Update display
+        self.update("\n".join(lines))
+        
+    def clear(self) -> None:
+        """Clear the terminal."""
+        if self.term_screen:
+            self.term_screen.reset()
+            self.refresh_display()
+        else:
+            self.buffer = []
+            self.update("")
+    
+    def on_key(self, event) -> None:
+        """Handle key events - pass them to the PTY."""
+        if not self.pty_master:
+            return
+            
+        try:
+            key = event.key
+            
+            # Handle special keys
+            if key == "enter":
+                os.write(self.pty_master, b'\n')
+            elif key == "backspace":
+                os.write(self.pty_master, b'\x7f')
+            elif key == "tab":
+                os.write(self.pty_master, b'\t')
+            elif key == "shift+tab":
+                os.write(self.pty_master, b'\x1b[Z')  # Reverse tab
+            elif key == "escape":
+                os.write(self.pty_master, b'\x1b')
+            elif key == "up":
+                os.write(self.pty_master, b'\x1b[A')
+            elif key == "down":
+                os.write(self.pty_master, b'\x1b[B')
+            elif key == "left":
+                os.write(self.pty_master, b'\x1b[D')
+            elif key == "right":
+                os.write(self.pty_master, b'\x1b[C')
+            elif key == "ctrl+c":
+                os.write(self.pty_master, b'\x03')  # Ctrl+C
+            elif len(key) == 1:
+                # Regular character
+                os.write(self.pty_master, key.encode('utf-8'))
+        except:
+            pass
+
+class TerminalPanel(BasePanel):
+    """Panel that runs Claude CLI in a full terminal emulator."""
+    
+    CSS = BasePanel.DEFAULT_CSS + """
+    TerminalWidget {
+        height: 100%;
+        background: #0a0a0a;
+        color: #00ff00;
+        padding: 1;
+        border: solid #444444;
+        overflow-y: scroll;
+        font-family: monospace;
+        font-size: 14px;
+        line-height: 1.2;
+    }
+    
+    TerminalWidget:focus {
+        border: solid #00ff00;
+    }
+    
+    .terminal-content {
+        font-family: "Courier New", "Monaco", "Consolas", monospace;
+        white-space: pre;
+        word-wrap: break-word;
+    }
+    
+    #terminal-status {
+        dock: bottom;
+        height: 1;
+        background: #1a1a1a;
+        color: #888;
+        padding: 0 1;
+    }
+    """
     
     BINDINGS = BasePanel.BINDINGS + [
-        Binding("ctrl+k", "interrupt", "Interrupt"),
+        Binding("ctrl+c", "interrupt", "Interrupt", priority=True),
         Binding("ctrl+r", "restart", "Restart Session"),
+        Binding("shift+tab", "pass_through", "Pass to Claude", priority=True),
+        Binding("escape", "pass_through_escape", "Pass Escape", priority=True),
     ]
     
     def __init__(self, **kwargs):
         """Initialize the terminal panel."""
-        # Extract auto_start parameter if present (not used in SDK version)
-        auto_start = kwargs.pop('auto_start', True)
-        
         super().__init__(**kwargs)
-        self._init_params = {}  # Store for hot-reloading
-        self.current_task: Optional[asyncio.Task] = None
-        self.conversation_history = []
+        self._init_params = {}
+        self.pty_master: Optional[int] = None
+        self.pty_pid: Optional[int] = None
+        self.read_thread: Optional[threading.Thread] = None
+        self.running = False
+        self.terminal_widget: Optional[TerminalWidget] = None
         
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
         with Vertical():
             yield Static("🖥️ Claude Terminal", classes="panel-title")
             
-            # Terminal output display
-            self.output = RichLog(
-                highlight=True,
-                markup=True,
-                wrap=True,
-                id="terminal-output"
-            )
-            self.output.styles.height = "100%"
-            yield self.output
+            # Terminal widget - works with or without pyte
+            self.terminal_widget = TerminalWidget(rows=40, cols=120, id="terminal-output")
+            yield self.terminal_widget
             
             # Status bar
-            self.status = Static("Status: Ready", id="terminal-status")
+            self.status = Static("Status: Starting...", id="terminal-status")
             yield self.status
-            
-        # Debug output
-        logging.debug("TerminalPanel compose_content() called")
             
     async def on_mount(self) -> None:
         """Called when panel is mounted."""
-        self.output.write("[yellow]Claude Terminal Ready![/yellow]")
-        self.output.write(f"[dim]Working directory: {os.getcwd()}[/dim]")
-        self.output.write("[green]Send a message using the prompt panel above.[/green]")
+        await self.start_claude_cli()
+            
+    async def start_claude_cli(self) -> None:
+        """Start Claude CLI in a pseudo-terminal."""
+        try:
+            # Get terminal size
+            rows = self.terminal_widget.rows if self.terminal_widget else 40
+            cols = self.terminal_widget.cols if self.terminal_widget else 120
+            
+            # Fork with PTY
+            pid, master = pty.fork()
+            
+            if pid == 0:  # Child process
+                # Set up the environment
+                os.environ['TERM'] = 'xterm-256color'
+                os.environ['LINES'] = str(rows)
+                os.environ['COLUMNS'] = str(cols)
+                
+                # Execute Claude CLI
+                try:
+                    os.execvp("claude", ["claude", "--dangerously-skip-permissions"])
+                except Exception as e:
+                    # If claude fails to start, print error and exit
+                    print(f"Failed to start claude: {e}", file=sys.stderr)
+                    sys.exit(1)
+            else:  # Parent process
+                self.pty_pid = pid
+                self.pty_master = master
+                self.running = True
+                
+                # Connect the PTY to the terminal widget for keyboard input
+                if self.terminal_widget:
+                    self.terminal_widget.pty_master = master
+                
+                # Set terminal size
+                size = struct.pack('HHHH', rows, cols, 0, 0)
+                fcntl.ioctl(master, termios.TIOCSWINSZ, size)
+                
+                # Make master non-blocking
+                flags = fcntl.fcntl(master, fcntl.F_GETFL)
+                fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                
+                # Start reader thread
+                self.read_thread = threading.Thread(
+                    target=self._read_output_loop,
+                    daemon=True
+                )
+                self.read_thread.start()
+                
+                self.status.update("Status: [green]Ready[/green]")
+                logging.info(f"Started Claude CLI with PID {pid}")
+                
+                # Check if process is actually running
+                import time
+                time.sleep(0.5)  # Give it more time to fully initialize
+                try:
+                    os.kill(pid, 0)  # Check if process exists
+                    logging.info(f"Claude CLI process {pid} is running")
+                    # Force a refresh after initialization
+                    if self.terminal_widget:
+                        self.terminal_widget.refresh_display()
+                except ProcessLookupError:
+                    logging.error(f"Claude CLI process {pid} died immediately")
+                    self.terminal_widget.update("Claude CLI failed to start properly")
+                
+        except Exception as e:
+            if self.terminal_widget:
+                self.terminal_widget.update(f"Failed to start Claude CLI: {e}")
+            self.status.update("Status: [red]Error[/red]")
+            logging.error(f"Failed to start Claude CLI: {e}")
+            
+    def _read_output_loop(self) -> None:
+        """Read output from PTY and feed to terminal emulator."""
+        while self.running and self.pty_master is not None:
+            try:
+                # Check if data is available
+                ready, _, _ = select.select([self.pty_master], [], [], 0.1)
+                
+                if ready:
+                    # Read available data
+                    data = os.read(self.pty_master, 4096)
+                    if data:
+                        # Feed to terminal emulator
+                        self.app.call_from_thread(self._update_terminal, data)
+                    else:
+                        # EOF - process died
+                        break
+            except BlockingIOError:
+                # No data available
+                continue
+            except OSError as e:
+                if e.errno == 5:  # Input/output error
+                    break
+                elif e.errno == 9:  # Bad file descriptor - PTY was closed
+                    break
+                else:
+                    logging.error(f"Error reading from PTY: {e}")
+                    break
+            except Exception as e:
+                logging.error(f"Unexpected error in read loop: {e}")
+                break
+                
+        # Process exited
+        self.running = False
+        self.app.call_from_thread(self._handle_process_exit)
+        
+    def _update_terminal(self, data: bytes) -> None:
+        """Update terminal display with new data."""
+        if self.terminal_widget:
+            self.terminal_widget.feed(data)
+            # Log all outputs to debug display issues
+            logging.debug(f"Terminal output (len={len(data)}): {repr(data[:200])}")
+            # Also log the cleaned text to see what users should see
+            if hasattr(self.terminal_widget, 'term_screen') and self.terminal_widget.term_screen:
+                # Get last line from pyte screen
+                last_line = ""
+                for x in range(self.terminal_widget.term_screen.columns):
+                    char = self.terminal_widget.term_screen.buffer[self.terminal_widget.term_screen.cursor.y][x]
+                    last_line += char.data or " "
+                logging.debug(f"Terminal screen cursor line: {repr(last_line.rstrip())}")
+            
+    def _handle_process_exit(self) -> None:
+        """Handle Claude CLI process exit."""
+        if self.terminal_widget:
+            self.terminal_widget.feed(b"\r\n[Process terminated]\r\n")
+        self.status.update("Status: [yellow]Terminated[/yellow]")
+        
+        # Clean up
+        if self.pty_master is not None:
+            try:
+                os.close(self.pty_master)
+            except:
+                pass
+            self.pty_master = None
+            
+        self.pty_pid = None
+        self.running = False
         
     async def send_prompt(self, prompt: str, mode: str = "develop") -> None:
-        """Send a prompt to Claude via SDK.
+        """Send a prompt to Claude CLI.
         
         Args:
             prompt: The user's prompt
@@ -71,268 +378,151 @@ class TerminalPanel(BasePanel):
         """
         logging.info(f"send_prompt called with: {prompt[:100]}... mode={mode}")
         
-        if self.current_task and not self.current_task.done():
-            self.output.write("[red]Claude is still processing. Please wait...[/red]")
+        if not self.running or self.pty_master is None:
+            if self.terminal_widget:
+                self.terminal_widget.feed(b"\r\nClaude CLI is not running. Press Ctrl+R to restart.\r\n")
             return
             
-        # Display the user prompt
-        self.output.write(f"\n[bold blue]You:[/bold blue] {prompt}")
-        self.status.update("Status: [yellow]Processing...[/yellow]")
-        logging.info("User prompt displayed, status updated")
-        
-        # Add to conversation history
-        self.conversation_history.append({"role": "user", "content": prompt})
-        
         # Process based on mode
         processed_prompt = self._process_prompt_with_mode(prompt, mode)
         
-        # Create the query task
-        self.current_task = asyncio.create_task(self._query_claude(processed_prompt))
-        
+        try:
+            # Send prompt to Claude CLI
+            data = processed_prompt.encode('utf-8')
+            
+            # First, add a visual separator and show what we're sending
+            separator = b"\r\n" + b"=" * 80 + b"\r\n"
+            self.terminal_widget.feed(separator)
+            self.terminal_widget.feed(b"Sending prompt to Claude CLI...\r\n")
+            self.terminal_widget.feed(b"-" * 80 + b"\r\n")
+            
+            # Send the prompt
+            os.write(self.pty_master, data)
+            # Now send newline to submit
+            os.write(self.pty_master, b'\n')
+            
+            # Update status
+            self.status.update(f"Status: [yellow]Processing...[/yellow] ({len(prompt)} chars)")
+            
+            # Force a display refresh
+            if self.terminal_widget:
+                self.terminal_widget.refresh_display()
+            
+        except Exception as e:
+            if self.terminal_widget:
+                self.terminal_widget.feed(f"\r\nError sending prompt: {e}\r\n".encode())
+            logging.error(f"Error sending prompt: {e}")
+            
     def _process_prompt_with_mode(self, prompt: str, mode: str) -> str:
-        """Process prompt based on the selected mode.
-        
-        Args:
-            prompt: The user's prompt
-            mode: Either 'develop' or 'morph'
-        """
-        if mode == 'morph':
-            # Get the Claude Code Morph source directory
+        """Process prompt based on the selected mode."""
+        if mode.lower() == 'morph':
             morph_dir = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute()
-            
-            # Add context to the prompt
             morph_context = f"\n\n[IMPORTANT: This is a 'morph' mode command. Please work on the Claude Code Morph source files located at {morph_dir}, NOT the current working directory. The user wants to modify the IDE itself.]"
-            
-            # Log the mode
             logging.info(f"Morph mode active for: {prompt}")
-            self.output.write("[dim italic]→ Morph mode - targeting IDE source files[/dim italic]")
-            
             return prompt + morph_context
         
-        # For develop mode, return unmodified prompt
         logging.info(f"Develop mode active for: {prompt}")
         return prompt
         
-    async def _query_claude(self, prompt: str) -> None:
-        """Query Claude and display the response."""
-        try:
-            self.output.write("\n[bold green]Claude:[/bold green] ")
-            
-            response_text = ""
-            message_started = False
-            message_count = 0
-            
-            # Determine the working directory based on whether this is a morph mode command
-            morph_dir = str(Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute())
-            is_morph_mode = "[IMPORTANT: This is a 'morph' mode command" in prompt
-            # For morph mode, use morph source dir; otherwise use user's working dir
-            user_cwd = os.environ.get("MORPH_USER_CWD", os.getcwd())
-            working_dir = morph_dir if is_morph_mode else user_cwd
-            
-            # Query Claude with streaming
-            logging.info(f"Starting query with prompt: {prompt[:100]}...")
-            logging.info(f"Working directory: {working_dir}")
-            
-            # Note: Removed status update task to avoid TaskGroup errors
-            # TODO: Find a better way to show progress without causing stream interruptions
-            
-            async for message in query(
-                prompt=prompt,
-                options=ClaudeCodeOptions(
-                    max_turns=1,
-                    cwd=working_dir,
-                    system_prompt=f"You are Claude, helping with software development. The Claude Code Morph IDE source is at {morph_dir}. For 'morph' commands, work on the IDE source. For other commands, work in the user's current directory."
-                )
-            ):
-                message_count += 1
-                logging.debug(f"Received message #{message_count} type: {type(message).__name__}")
-                
-                # Skip SystemMessage - it's just metadata
-                if isinstance(message, SystemMessage):
-                    logging.debug("Skipping SystemMessage")
-                    continue
-                    
-                # Skip ResultMessage - it's just summary info
-                if hasattr(message.__class__, '__name__') and message.__class__.__name__ == 'ResultMessage':
-                    logging.debug(f"Skipping ResultMessage: {message}")
-                    continue
-                
-                # Handle different message types
-                if isinstance(message, AssistantMessage):
-                    logging.info(f"Processing AssistantMessage with {len(message.content)} blocks")
-                    # Handle AssistantMessage with TextBlock content
-                    for i, block in enumerate(message.content):
-                        logging.debug(f"Block {i}: type={type(block).__name__}")
-                        if isinstance(block, TextBlock):
-                            if not message_started:
-                                message_started = True
-                            logging.info(f"Writing text block: {block.text[:50]}...")
-                            # Write text and ensure it displays immediately
-                            self.output.write(block.text)
-                            response_text += block.text
-                            # Force UI update for real-time streaming
-                            self.output.refresh()
-                            await asyncio.sleep(0)  # Yield control to update UI
-                        elif isinstance(block, ToolUseBlock):
-                            # Handle tool use blocks
-                            if not message_started:
-                                message_started = True
-                            tool_info = f"\n[dim]→ Using tool: {block.name}[/dim]\n"
-                            self.output.write(tool_info)
-                            response_text += tool_info
-                            logging.info(f"Tool use: {block.name} with id {block.id}")
-                            # Force refresh for tool use
-                            self.output.refresh()
-                            await asyncio.sleep(0)
-                        else:
-                            # Log unexpected block types
-                            logging.warning(f"Unexpected block type in AssistantMessage: {type(block).__name__}")
-                elif isinstance(message, UserMessage):
-                    # Handle UserMessage (tool responses)
-                    logging.info(f"Processing UserMessage")
-                    # UserMessage.content can be either string or list
-                    if message.content:
-                        if not message_started:
-                            message_started = True
-                        
-                        # Handle both string and list content
-                        if isinstance(message.content, str):
-                            self.output.write(f"[dim]{message.content}[/dim]\n")
-                            response_text += message.content
-                        elif isinstance(message.content, list):
-                            # Handle list of content blocks (tool results)
-                            for block in message.content:
-                                if isinstance(block, ToolResultBlock):
-                                    if block.content:
-                                        content_str = str(block.content)
-                                        self.output.write(f"[dim]{content_str}[/dim]\n")
-                                        response_text += content_str + "\n"
-                                else:
-                                    # Fallback for other block types
-                                    block_str = str(block)
-                                    self.output.write(f"[dim]{block_str}[/dim]\n")
-                                    response_text += block_str + "\n"
-                elif isinstance(message, dict):
-                    # Handle legacy dict format
-                    if message.get("type") == "text":
-                        content = message.get("content", "")
-                        if content:
-                            if not message_started:
-                                message_started = True
-                            self.output.write(content)
-                            response_text += content
-                    elif message.get("type") == "error":
-                        self.output.write(f"\n[red]Error: {message.get('error', 'Unknown error')}[/red]")
-                        self.status.update("Status: [red]Error[/red]")
-                        return
-                else:
-                    # Handle plain text responses or unknown message types
-                    text = str(message)
-                    # Debug: Log the message type to understand what we're receiving
-                    logging.warning(f"Unknown message type: {type(message).__name__} - content: {text[:100]}...")
-                    if text.strip() and not text.startswith("SystemMessage"):
-                        if not message_started:
-                            message_started = True
-                        self.output.write(text)
-                        response_text += text
-            
-            # Log summary
-            logging.info(f"Query complete. Messages received: {message_count}, Response length: {len(response_text)}")
-            
-            # Add response to history
-            if response_text:
-                self.conversation_history.append({"role": "assistant", "content": response_text})
-            else:
-                self.output.write("[dim italic](No response received)[/dim italic]")
-                
-            # Ensure we end with a newline
-            self.output.write("")
-            
-            # Update status based on whether it was a morph mode command
-            if is_morph_mode:
-                self.status.update("Status: [green]Ready[/green] [dim](last: morph mode)[/dim]")
-            else:
-                self.status.update("Status: [green]Ready[/green]")
-            
-        except Exception as e:
-            import traceback
-            error_msg = str(e)
-            
-            # Check for specific errors
-            if "JSONDecodeError" in error_msg:
-                self.output.write(f"\n[yellow]Claude is processing a complex response. This may take a moment...[/yellow]")
-                logging.warning(f"JSON decode error (likely due to streaming): {error_msg}")
-            elif "response stream interrupted" in error_msg.lower() or "unhandled errors in a TaskGroup" in error_msg or "cancel scope" in error_msg:
-                # This often happens when the stream is interrupted or there's a concurrency issue
-                self.output.write(f"\n[yellow]⚠ Response stream interrupted[/yellow]")
-                self.output.write(f"\n[dim]The command may still be executing in the background.[/dim]")
-                self.output.write(f"\n[dim]Tip: You can check if changes were applied or try the command again.[/dim]")
-                logging.warning(f"Stream/concurrency error: {error_msg[:200]}...")
-            else:
-                self.output.write(f"\n[red]Error querying Claude: {error_msg}[/red]")
-                self.output.write(f"\n[dim]Check main.log for details[/dim]")
-                logging.error(f"Error in _query_claude: {e}\n{traceback.format_exc()}")
-                
-            self.status.update("Status: [yellow]Partial response[/yellow]")
-        finally:
-            self.current_task = None
-    
-    async def _update_status_periodically(self):
-        """Update status periodically during long operations."""
-        dots = 0
-        try:
-            while True:
-                await asyncio.sleep(1)
-                dots = (dots + 1) % 4
-                status_text = "Status: [yellow]Processing" + "." * dots + " " * (3 - dots) + "[/yellow]"
-                self.status.update(status_text)
-        except asyncio.CancelledError:
-            # This is expected when the task is cancelled
-            raise
-        except Exception as e:
-            # Log but don't crash
-            logging.debug(f"Status update task error: {e}")
-            
     def action_interrupt(self) -> None:
-        """Interrupt current Claude query."""
-        if self.current_task and not self.current_task.done():
-            self.current_task.cancel()
-            self.output.write("\n[yellow]Query interrupted![/yellow]")
-            self.status.update("Status: [yellow]Interrupted[/yellow]")
-            self.current_task = None
-        else:
-            self.output.write("[yellow]No active query to interrupt.[/yellow]")
-            
+        """Send interrupt signal to Claude CLI."""
+        if self.pty_master:
+            try:
+                # Send Ctrl+C directly through PTY
+                os.write(self.pty_master, b'\x03')  # Ctrl+C
+            except Exception as e:
+                if self.terminal_widget:
+                    self.terminal_widget.feed(f"\r\nFailed to send interrupt: {e}\r\n".encode())
+                    
+    def action_pass_through(self) -> None:
+        """Pass through Shift+Tab to Claude."""
+        if self.pty_master:
+            try:
+                # Send Shift+Tab (reverse tab)
+                os.write(self.pty_master, b'\x1b[Z')
+            except:
+                pass
+                
+    def action_pass_through_escape(self) -> None:
+        """Pass through Escape key to Claude."""
+        if self.pty_master:
+            try:
+                # Send ESC
+                os.write(self.pty_master, b'\x1b')
+            except:
+                pass
+                
     def action_restart(self) -> None:
-        """Restart the conversation."""
-        # Cancel any active task
-        if self.current_task and not self.current_task.done():
-            self.current_task.cancel()
-            
-        # Clear conversation history
-        self.conversation_history.clear()
+        """Restart the Claude CLI session."""
+        # Stop the running process
+        self.running = False
         
-        # Clear output
-        self.output.clear()
-        self.output.write("[yellow]Conversation restarted![/yellow]")
-        self.output.write(f"[dim]Working directory: {os.getcwd()}[/dim]")
-        self.output.write("[green]Send a message using the prompt panel above.[/green]")
-        self.status.update("Status: [green]Ready[/green]")
-    
+        if self.pty_pid:
+            try:
+                os.kill(self.pty_pid, signal.SIGTERM)
+                os.waitpid(self.pty_pid, 0)
+            except:
+                pass
+                
+        # Close PTY
+        if self.pty_master:
+            try:
+                os.close(self.pty_master)
+            except:
+                pass
+                
+        # Clear terminal
+        if self.terminal_widget:
+            self.terminal_widget.clear()
+        
+        # Restart
+        self.status.update("Status: Restarting...")
+        asyncio.create_task(self.start_claude_cli())
+        
+    def on_key(self, event) -> None:
+        """Handle key events - let TerminalWidget handle most keys when focused."""
+        # Only handle our specific bindings at the panel level
+        # The TerminalWidget will handle key input when it has focus
+        pass
+            
     def get_copyable_content(self) -> str:
         """Get the content that can be copied from this panel."""
-        try:
-            if hasattr(self, 'output') and self.output:
-                # RichLog doesn't have a direct way to get all text
-                # For now, return empty string to avoid crashes
-                # TODO: Implement proper text extraction from RichLog
-                return "Terminal output (copy not yet implemented)"
-        except Exception as e:
-            logging.error(f"Error in TerminalPanel.get_copyable_content: {e}")
+        if self.terminal_widget and self.terminal_widget.term_screen:
+            lines = []
+            for y in range(self.terminal_widget.term_screen.lines):
+                line = ""
+                for x in range(self.terminal_widget.term_screen.columns):
+                    char = self.terminal_widget.term_screen.buffer[y][x]
+                    line += char.data or " "
+                lines.append(line.rstrip())
+            return "\n".join(lines)
         return ""
-    
+        
     def get_selected_content(self) -> Optional[str]:
         """Get currently selected content."""
-        # RichLog doesn't have built-in selection, so return None
-        # Users can use Ctrl+Shift+C to copy all
         return None
+        
+    def on_unmount(self) -> None:
+        """Clean up when panel is unmounted."""
+        # Stop the read thread first
+        self.running = False
+        
+        # Wait a bit for thread to stop
+        if self.read_thread and self.read_thread.is_alive():
+            self.read_thread.join(timeout=0.5)
+        
+        # Terminate process
+        if self.pty_pid:
+            try:
+                os.kill(self.pty_pid, signal.SIGTERM)
+                os.waitpid(self.pty_pid, os.WNOHANG)
+            except:
+                pass
+                
+        # Close PTY
+        if self.pty_master:
+            try:
+                os.close(self.pty_master)
+            except:
+                pass
+            self.pty_master = None

@@ -1,0 +1,18 @@
+# SDK-based workspace configuration for Claude Code Morph (legacy)
+name: default-sdk
+layout:
+  # Top panel - Prompt Generator
+  - type: PromptPanel
+    id: prompt
+    params: {}
+      
+  # Bottom panel - Claude SDK Terminal
+  - type: SDKTerminalPanel
+    id: terminal
+    params: {}
+
+# Additional settings
+settings:
+  theme: dark
+  auto_save: true
+  hot_reload: true

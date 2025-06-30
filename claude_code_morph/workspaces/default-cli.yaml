@@ -1,0 +1,18 @@
+# CLI-based workspace configuration for Claude Code Morph
+name: default-cli
+layout:
+  # Top panel - Prompt Generator
+  - type: PromptPanel
+    id: prompt
+    params: {}
+      
+  # Bottom panel - Claude CLI Terminal
+  - type: CLITerminalPanel
+    id: terminal
+    params: {}
+
+# Additional settings
+settings:
+  theme: dark
+  auto_save: true
+  hot_reload: true
