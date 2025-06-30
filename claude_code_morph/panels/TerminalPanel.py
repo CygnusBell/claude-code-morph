@@ -50,7 +50,9 @@ class TerminalWidget(Static):
     def feed(self, data: bytes) -> None:
         """Feed data to the terminal emulator."""
         if self.term_stream:
+            # Feed data to pyte
             self.term_stream.feed(data)
+            # Always refresh display after feeding data
             self.refresh_display()
         else:
             # Fallback: Simple text display
@@ -221,7 +223,8 @@ class TerminalPanel(BasePanel):
             yield Static("🖥️ Claude Terminal", classes="panel-title")
             
             # Terminal widget - works with or without pyte
-            self.terminal_widget = TerminalWidget(rows=40, cols=120, id="terminal-output")
+            # Use larger size for better visibility
+            self.terminal_widget = TerminalWidget(rows=50, cols=150, id="terminal-output")
             yield self.terminal_widget
             
             # Status bar
@@ -236,8 +239,8 @@ class TerminalPanel(BasePanel):
         """Start Claude CLI in a pseudo-terminal."""
         try:
             # Get terminal size
-            rows = self.terminal_widget.rows if self.terminal_widget else 40
-            cols = self.terminal_widget.cols if self.terminal_widget else 120
+            rows = self.terminal_widget.rows if self.terminal_widget else 50
+            cols = self.terminal_widget.cols if self.terminal_widget else 150
             
             # Fork with PTY
             pid, master = pty.fork()
