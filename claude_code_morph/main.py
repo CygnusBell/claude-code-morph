@@ -13,7 +13,7 @@ import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Type
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll, Container
 from textual.widgets import Header, Footer, Static
 from textual.binding import Binding
 from rich.console import Console
@@ -54,18 +54,31 @@ class ClaudeCodeMorph(App):
         width: 100%;
     }
     
+    .panel-container {
+        height: 1fr;
+        min-height: 5;
+    }
+    
     .panel {
         border: solid blue;
-        height: 1fr;
+        height: 100%;
+    }
+    
+    .splitter {
+        height: 1;
+        background: $boost;
+        dock: top;
+    }
+    
+    .splitter:hover {
+        background: $primary;
     }
     
     PromptPanel {
-        height: 30%;
         background: $surface;
     }
     
     TerminalPanel {
-        height: 40%;
         background: #1e1e1e;
         border: solid green;
     }
@@ -103,7 +116,8 @@ class ClaudeCodeMorph(App):
     def compose(self) -> ComposeResult:
         """Create the main layout."""
         yield Header()
-        yield Vertical(id="main-container")
+        from .widgets.resizable import ResizableContainer
+        yield ResizableContainer(id="main-container")
         yield Footer()
         
     def on_mount(self) -> None:
@@ -166,7 +180,8 @@ class ClaudeCodeMorph(App):
             
     async def load_workspace(self, config: dict) -> None:
         """Load a workspace configuration."""
-        container = self.query_one("#main-container", Vertical)
+        from .widgets.resizable import ResizableContainer
+        container = self.query_one("#main-container", ResizableContainer)
         
         # Clear existing panels
         await container.remove_children()
@@ -226,7 +241,8 @@ class ClaudeCodeMorph(App):
             panel.classes = "panel"
             
             # Add to layout
-            container = self.query_one("#main-container", Vertical)
+            from .widgets.resizable import ResizableContainer
+            container = self.query_one("#main-container", ResizableContainer)
             await container.mount(panel)
             
             # Store reference
@@ -303,7 +319,8 @@ class ClaudeCodeMorph(App):
                             setattr(new_panel, key, value)
                 
                 # Add to layout
-                container = self.query_one("#main-container", Vertical)
+                from .widgets.resizable import ResizableContainer
+                container = self.query_one("#main-container", ResizableContainer)
                 await container.mount(new_panel)
                 
                 self.panels[panel_id] = new_panel

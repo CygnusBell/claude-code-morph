@@ -7,7 +7,7 @@ layout:
     params: {}
       
   # Bottom panel - Claude Terminal
-  - type: TerminalPanel
+  - type: PipeTerminalPanel
     id: terminal
     params: {}
 

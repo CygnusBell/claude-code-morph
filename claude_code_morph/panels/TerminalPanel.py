@@ -31,7 +31,7 @@ class TerminalWidget(Static):
     
     can_focus = True  # Make the widget focusable
     
-    def __init__(self, rows: int = 24, cols: int = 80, **kwargs):
+    def __init__(self, rows: int = 50, cols: int = 150, **kwargs):
         super().__init__("", **kwargs)
         self.rows = rows
         self.cols = cols
@@ -43,6 +43,8 @@ class TerminalWidget(Static):
             # Create virtual terminal screen - renamed to avoid conflict with Textual's screen property
             self.term_screen = pyte.Screen(cols, rows)
             self.term_stream = pyte.ByteStream(self.term_screen)
+            # Set mode for better compatibility
+            self.term_screen.set_mode(pyte.modes.LNM)  # Line feed/new line mode
         else:
             self.term_screen = None
             self.term_stream = None
@@ -52,8 +54,20 @@ class TerminalWidget(Static):
         if self.term_stream:
             # Feed data to pyte
             self.term_stream.feed(data)
-            # Always refresh display after feeding data
+            # Refresh display immediately
             self.refresh_display()
+            
+            # Log significant content for debugging
+            if len(data) < 500:  # Only log small chunks
+                try:
+                    text = data.decode('utf-8', errors='replace')
+                    # Check for actual content (not just escape sequences)
+                    import re
+                    cleaned = re.sub(r'\x1b\[[0-9;]*[mGKHJ]', '', text)
+                    if cleaned.strip() and len(cleaned) > 10:
+                        logging.debug(f"Terminal content: {cleaned[:100]}")
+                except:
+                    pass
         else:
             # Fallback: Simple text display
             text = data.decode('utf-8', errors='replace')
@@ -89,37 +103,29 @@ class TerminalWidget(Static):
         if not self.term_screen:
             return
             
-        # Build the display from screen buffer
+        # Get the entire screen content
         lines = []
-        cursor_y = self.term_screen.cursor.y
         
-        # Show all lines in the terminal
-        for y in range(self.term_screen.lines):
-            line = ""
-            for x in range(self.term_screen.columns):
-                char = self.term_screen.buffer[y][x]
-                line += char.data or " "
-            lines.append(line.rstrip())
-            
-        # Find the last non-empty line
-        last_content_line = 0
-        for i in range(len(lines) - 1, -1, -1):
-            if lines[i].strip():
-                last_content_line = i
-                break
-                
-        # Keep lines up to the last content line or cursor position (whichever is greater)
-        keep_until = max(last_content_line, cursor_y) + 1
-        lines = lines[:keep_until]
+        # Use pyte's display method which handles the buffer properly
+        for line in self.term_screen.display:
+            lines.append(line)
         
-        # Log what we're displaying for debugging
-        if lines:
-            logging.debug(f"Displaying {len(lines)} lines, cursor at y={cursor_y}, x={self.term_screen.cursor.x}")
-            if cursor_y < len(lines):
-                logging.debug(f"Cursor line content: {repr(lines[cursor_y])}")
-            
-        # Update display
-        self.update("\n".join(lines))
+        # Find last non-empty line
+        last_line = len(lines) - 1
+        while last_line >= 0 and not lines[last_line].strip():
+            last_line -= 1
+        
+        # Keep content up to last line plus some padding
+        if last_line >= 0:
+            lines = lines[:last_line + 2]
+        
+        # Join and update
+        content = "\n".join(lines)
+        self.update(content)
+        
+        # Log for debugging if we see interesting content
+        if any(keyword in content.lower() for keyword in ['hello', 'claude:', 'error', 'response']):
+            logging.info(f"Terminal shows interesting content: {content[-200:]}")
         
     def clear(self) -> None:
         """Clear the terminal."""
@@ -391,20 +397,32 @@ class TerminalPanel(BasePanel):
         processed_prompt = self._process_prompt_with_mode(prompt, mode)
         
         try:
+            # Clear any existing input line first
+            os.write(self.pty_master, b'\x15')  # Ctrl+U to clear line
+            
             # Send prompt to Claude CLI
             data = processed_prompt.encode('utf-8')
             
-            # Send the prompt
-            os.write(self.pty_master, data)
+            # Send the prompt character by character with small delays
+            # This mimics human typing which might help Claude recognize input
+            for char in data:
+                os.write(self.pty_master, bytes([char]))
+                await asyncio.sleep(0.001)  # 1ms between chars
+            
             # Now send newline to submit
             os.write(self.pty_master, b'\n')
             
             # Update status
             self.status.update(f"Status: [yellow]Processing...[/yellow] ({len(prompt)} chars)")
             
-            # Force a display refresh after a short delay to ensure Claude has responded
-            import asyncio
-            asyncio.create_task(self._delayed_refresh())
+            # Log that we sent the prompt
+            logging.info(f"Sent prompt to Claude CLI: {prompt[:50]}...")
+            
+            # Force multiple display refreshes to catch the response
+            for i in range(10):
+                await asyncio.sleep(0.5)
+                if self.terminal_widget:
+                    self.terminal_widget.refresh_display()
             
         except Exception as e:
             if self.terminal_widget:

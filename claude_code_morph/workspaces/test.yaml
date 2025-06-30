@@ -1,0 +1,13 @@
+# Test workspace configuration for Claude Code Morph
+name: test
+layout:
+  # Simple terminal panel
+  - type: PipeTerminalPanel
+    id: terminal
+    params: {}
+
+# Additional settings
+settings:
+  theme: dark
+  auto_save: true
+  hot_reload: true
