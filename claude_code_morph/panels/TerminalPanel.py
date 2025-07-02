@@ -234,6 +234,7 @@ class TerminalPanel(BasePanel):
         self._claude_ready = False  # Track if Claude has shown initial prompt
         self._last_activity_time = 0  # Track last terminal activity
         self._last_content_hash = 0  # Track content changes
+        self._startup_time = 0  # Track when Claude started
         
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
@@ -304,8 +305,11 @@ class TerminalPanel(BasePanel):
                 self.status.update("Status: [green]Starting...[/green]")
                 logging.info(f"Started Claude CLI with PID {pid}")
                 
-                # Check if process is actually running
+                # Track startup time
                 import time
+                self._startup_time = time.time()
+                
+                # Check if process is actually running
                 time.sleep(0.5)  # Give it more time to fully initialize
                 try:
                     os.kill(pid, 0)  # Check if process exists
@@ -587,17 +591,40 @@ class TerminalPanel(BasePanel):
         
         # If Claude hasn't started yet, it's considered "processing"
         if not self._claude_ready:
+            # But check if we've been waiting too long (> 10 seconds)
+            if hasattr(self, '_startup_time'):
+                if time.time() - self._startup_time > 10.0:
+                    # Force ready after 10 seconds
+                    self._claude_ready = True
+                    return False
             return True
         
-        # Check if there's recent activity (within last 2 seconds)
+        # Enhanced activity-based detection
         if self._last_activity_time > 0:
             time_since_activity = time.time() - self._last_activity_time
-            if time_since_activity < 2.0:
-                # Recent activity suggests Claude might be processing
+            
+            # If we explicitly know Claude is processing, trust that for a bit
+            if self._is_claude_processing:
+                # But timeout after 30 seconds of no activity
+                if time_since_activity > 30.0:
+                    logging.warning(f"Claude processing timeout after {time_since_activity:.1f}s of inactivity")
+                    self._is_claude_processing = False
+                    return False
+                return True
+            
+            # Otherwise use activity patterns
+            if time_since_activity < 1.5:
+                # Very recent activity - likely processing
                 return True
             elif time_since_activity > 5.0:
-                # No activity for 5+ seconds, probably idle
+                # No activity for 5+ seconds - definitely idle
                 return False
+            else:
+                # Gray area - check terminal content for Human: prompt
+                if hasattr(self, 'terminal_widget') and self.terminal_widget:
+                    content = str(self.terminal_widget.renderable)
+                    if content and content.strip().endswith("Human:"):
+                        return False
         
         # Fall back to state-based detection
         return self._is_claude_processing

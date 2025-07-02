@@ -5,13 +5,13 @@ import logging
 from typing import Optional, Callable, Dict, Any
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Center, Middle, Grid, ScrollableContainer
-from textual.widgets import Static, TextArea, Button, Label, Select
+from textual.widgets import Static, TextArea, Button, Label, Select, Input
 from textual.reactive import reactive
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.events import Click, MouseScrollUp, MouseScrollDown
+from textual.events import Click, MouseScrollUp, MouseScrollDown, Key
 from rich.panel import Panel
 from rich.syntax import Syntax
 import asyncio
@@ -207,11 +207,13 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel .prompt-queue-item {
+        layout: horizontal;
         height: 3;
         padding: 0 1;
         margin: 0;
         background: $panel;
         border-bottom: solid $primary-darken-2;
+        align: center middle;
     }
     
     PromptPanel .prompt-queue-item:hover {
@@ -238,10 +240,43 @@ class PromptPanel(BasePanel):
         border-left: thick $error;
     }
     
-    PromptPanel .prompt-queue-item Label {
-        height: 100%;
+    PromptPanel .queue-item-status {
+        width: 6;
+        text-align: left;
+    }
+    
+    PromptPanel .queue-item-label {
+        width: 1fr;
+        padding: 0 1;
+        text-style: normal;
         overflow: hidden ellipsis;
-        padding: 1 0;
+    }
+    
+    PromptPanel .queue-item-label:hover {
+        text-style: bold;
+        background: $primary-darken-3;
+    }
+    
+    PromptPanel .queue-item-edit {
+        width: 1fr;
+        margin: 0 1;
+        height: 1;
+    }
+    
+    PromptPanel .queue-item-delete {
+        width: 3;
+        height: 1;
+        min-width: 3;
+        padding: 0;
+        margin: 0;
+    }
+    
+    PromptPanel .queue-item-save-btn, PromptPanel .queue-item-cancel-btn {
+        width: 3;
+        height: 1;
+        min-width: 3;
+        padding: 0;
+        margin: 0 0 0 1;
     }
     
     PromptPanel .queue-empty-message {
@@ -336,11 +371,15 @@ class PromptPanel(BasePanel):
         self.prompt_history = []
         self.history_index = -1
         
-        # Prompt queue management
-        self.prompt_queue = []  # List of queued prompts
+        # Prompt queue management - NEW IMPLEMENTATION
+        self.prompt_queue = []  # Still a list for display, but not for processing
+        self._queue_for_processing = asyncio.Queue()  # Thread-safe queue for processing
+        self._process_lock = asyncio.Lock()  # Prevent concurrent processors
+        self._processor_task = None  # Track the active processor task
         self.highlighted_queue_index = 0  # Currently highlighted item in queue
-        self.is_processing = False  # Whether Claude is currently processing
-        self._last_process_time = 0  # Last time a prompt was processed
+        self._editing_index = -1  # Index of item being edited inline
+        self._queue_paused = False  # Whether queue processing is paused
+        self._last_activity_time = 0  # Track last activity for timeout detection
         
         # Debug: Log CSS loading
         logging.info("PromptPanel CSS styles loading...")
@@ -453,12 +492,12 @@ class PromptPanel(BasePanel):
             logging.info(f"Restored {old_count} prompts in queue from previous session")
             
             # Mark queue as paused initially so it doesn't auto-process old prompts
-            self.is_processing = True
+            self._queue_paused = True
             
             # Allow manual processing by resetting flag after a delay
             async def reset_processing():
                 await asyncio.sleep(2.0)
-                self.is_processing = False
+                self._queue_paused = False
             
             asyncio.create_task(reset_processing())
         
@@ -627,7 +666,7 @@ class PromptPanel(BasePanel):
         self.prompt_history.append(prompt)
         self.history_index = len(self.prompt_history)
         
-        # Add to queue with better tracking
+        # Create queue item with simplified structure
         import uuid
         import time
         mode = getattr(self, 'selected_mode', 'develop')
@@ -636,12 +675,14 @@ class PromptPanel(BasePanel):
             'prompt': prompt,
             'mode': mode,
             'cost_saver': self.cost_saver_enabled,
-            'status': 'pending',  # pending, sending, sent, failed
             'created_at': time.time(),
-            'attempts': 0,
-            'last_error': None
         }
+        
+        # Add to display queue
         self.prompt_queue.append(queue_item)
+        
+        # Add to processing queue (thread-safe)
+        asyncio.create_task(self._queue_for_processing.put(queue_item))
         
         # Update queue display
         self._update_queue_display()
@@ -652,10 +693,8 @@ class PromptPanel(BasePanel):
         # Notify user
         self.app.notify(f"Prompt added to queue (position {len(self.prompt_queue)})", severity="information")
         
-        # Process queue if not already processing
-        if not self.is_processing:
-            logging.info("Starting queue processor")
-            asyncio.create_task(self._process_queue())
+        # Start processor if not running
+        self._ensure_processor_running()
         
     async def _async_submit(self, prompt: str, mode: str) -> None:
         """Handle async submission."""
@@ -816,15 +855,30 @@ Output only the enhanced prompt, nothing else."""
             self.app.notify("Queue is empty", severity="information")
             return
             
-        if self.is_processing:
-            # Reset the processing flag
-            self.is_processing = False
-            self.app.notify("Reset queue processor, starting again...", severity="warning")
-            logging.info("Force resetting queue processor")
+        # Cancel existing processor if running
+        if self._processor_task and not self._processor_task.done():
+            self._processor_task.cancel()
+            self.app.notify("Cancelled existing processor, starting new one...", severity="warning")
+            logging.info("Force cancelled existing queue processor")
         
-        # Start processing
-        asyncio.create_task(self._process_queue())
-        self.app.notify("Force processing queue...", severity="information")
+        # Reset pause state
+        self._queue_paused = False
+        
+        # Re-add all pending items to processing queue
+        pending_count = 0
+        for item in self.prompt_queue:
+            if item.get('status', 'pending') in ['pending', 'failed']:
+                item['status'] = 'pending'  # Reset failed items
+                item['attempts'] = 0  # Reset attempts
+                asyncio.create_task(self._queue_for_processing.put(item.copy()))
+                pending_count += 1
+        
+        if pending_count > 0:
+            self.app.notify(f"Re-queued {pending_count} prompts for processing", severity="information")
+            # Start processing
+            self._ensure_processor_running()
+        else:
+            self.app.notify("No pending prompts to process", severity="information")
     
     
     async def _confirm_clear(self) -> None:
@@ -914,116 +968,11 @@ Output only the enhanced prompt, nothing else."""
             logging.error(f"Error in get_selected_content: {e}")
         return None
     
+    # Legacy method kept for compatibility during transition
     async def _process_queue(self) -> None:
-        """Process prompts from the queue with atomic operations."""
-        if self.is_processing:
-            logging.warning("Queue processor already running, skipping")
-            return
-            
-        self.is_processing = True
-        
-        try:
-            import time
-            self._last_process_time = time.time()
-            processed_count = 0
-            
-            while True:
-                # Find next pending item
-                pending_item = None
-                for item in self.prompt_queue:
-                    if item.get('status') == 'pending':
-                        pending_item = item
-                        break
-                
-                if not pending_item:
-                    logging.info("No pending items in queue")
-                    break
-                
-                logging.info(f"Processing item {pending_item['id'][:8]}... from queue of {len(self.prompt_queue)} items")
-                
-                # Mark as sending ATOMICALLY before any async operations
-                pending_item['status'] = 'sending'
-                pending_item['attempts'] += 1
-                self._update_queue_display()
-                
-                # Wait for Claude to be idle
-                logging.info("Waiting for Claude to become idle...")
-                try:
-                    await self._wait_for_claude_idle()
-                except Exception as e:
-                    logging.error(f"Error waiting for Claude idle: {e}")
-                    pending_item['status'] = 'failed'
-                    pending_item['last_error'] = str(e)
-                    continue
-                
-                # Extract item data
-                prompt = pending_item['prompt']
-                mode = pending_item['mode']
-                cost_saver = pending_item.get('cost_saver', False)
-                
-                # Process with cost saver if enabled
-                if cost_saver:
-                    try:
-                        prompt = await self._call_optimizer(prompt)
-                    except Exception as e:
-                        logging.error(f"Failed to optimize prompt: {e}")
-                
-                # Send to terminal
-                send_success = False
-                try:
-                    logging.info(f"Sending prompt to terminal: {prompt[:50]}...")
-                    if self.on_submit:
-                        await self._async_submit(prompt, mode)
-                    else:
-                        await self._send_to_terminal(prompt, mode)
-                    send_success = True
-                except Exception as e:
-                    logging.error(f"Failed to send prompt: {e}")
-                    pending_item['last_error'] = str(e)
-                    self.app.notify(f"Failed to send prompt: {e}", severity="error")
-                
-                if send_success:
-                    # Mark as sent and remove from queue
-                    pending_item['status'] = 'sent'
-                    self.prompt_queue.remove(pending_item)
-                    processed_count += 1
-                    logging.info(f"Successfully sent and removed item {pending_item['id'][:8]}")
-                    
-                    # Update watchdog
-                    self._last_process_time = time.time()
-                    
-                    # Wait before processing next item
-                    await asyncio.sleep(3.0)
-                else:
-                    # Mark as failed
-                    pending_item['status'] = 'failed'
-                    
-                    # Retry logic
-                    if pending_item['attempts'] < 3:
-                        # Reset to pending for retry
-                        await asyncio.sleep(5.0)
-                        pending_item['status'] = 'pending'
-                        logging.info(f"Will retry item {pending_item['id'][:8]} (attempt {pending_item['attempts']}/3)")
-                    else:
-                        # Too many attempts, remove from queue
-                        self.prompt_queue.remove(pending_item)
-                        logging.error(f"Giving up on item {pending_item['id'][:8]} after 3 attempts")
-                        self.app.notify(f"Failed to send prompt after 3 attempts", severity="error")
-                
-                self._update_queue_display()
-            
-            # Notify completion
-            if processed_count > 0:
-                self.app.notify(f"Queue processing complete: {processed_count} prompts sent", severity="success")
-            else:
-                self.app.notify("Queue processing complete: No prompts were sent", severity="warning")
-                
-        except Exception as e:
-            logging.error(f"Queue processing error: {e}", exc_info=True)
-            self.app.notify(f"Queue processing error: {e}", severity="error")
-        finally:
-            self.is_processing = False
-            self._last_process_time = 0  # Reset watchdog timer
+        """Legacy queue processor - redirects to new implementation."""
+        logging.info("Legacy _process_queue called, redirecting to new implementation")
+        await self._process_queue_v2()
     
     async def _wait_for_claude_idle(self) -> None:
         """Wait for Claude CLI to become idle."""
@@ -1068,6 +1017,140 @@ Output only the enhanced prompt, nothing else."""
             logging.warning("No terminal panel found with is_claude_processing method, using fallback wait")
             await asyncio.sleep(2.0)
     
+    def _ensure_processor_running(self) -> None:
+        """Ensure the queue processor is running."""
+        # Check if processor task exists and is running
+        if self._processor_task and not self._processor_task.done():
+            logging.debug("Queue processor is already running")
+            return
+        
+        # Start new processor task
+        logging.info("Starting queue processor task")
+        self._processor_task = asyncio.create_task(self._process_queue_v2())
+        
+        # Add error handler
+        def handle_error(task):
+            try:
+                task.result()
+            except Exception as e:
+                logging.error(f"Queue processor error: {e}", exc_info=True)
+                self.app.notify(f"Queue processor error: {e}", severity="error")
+                # Reset state on error
+                self._processor_task = None
+        
+        self._processor_task.add_done_callback(handle_error)
+    
+    async def _process_queue_v2(self) -> None:
+        """Process queue items using asyncio.Lock for thread safety."""
+        async with self._process_lock:
+            logging.info("Queue processor started")
+            processed_count = 0
+            
+            try:
+                while True:
+                    # Check if we have items in the processing queue
+                    if self._queue_for_processing.empty():
+                        logging.info("Processing queue is empty, exiting processor")
+                        break
+                    
+                    # Get next item from queue (this is thread-safe)
+                    try:
+                        item = await asyncio.wait_for(self._queue_for_processing.get(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        logging.debug("No items in processing queue")
+                        break
+                    
+                    logging.info(f"Processing queue item {item['id'][:8]}...")
+                    
+                    # Find corresponding display item and update status
+                    display_item = None
+                    for idx, display in enumerate(self.prompt_queue):
+                        if display['id'] == item['id']:
+                            display_item = display
+                            display_item['status'] = 'sending'
+                            display_item['attempts'] = display_item.get('attempts', 0) + 1
+                            self._update_queue_display()
+                            break
+                    
+                    if not display_item:
+                        logging.error(f"Display item not found for {item['id']}")
+                        continue
+                    
+                    # Wait for Claude to be idle
+                    try:
+                        logging.info("Waiting for Claude to be idle...")
+                        await self._wait_for_claude_idle()
+                    except Exception as e:
+                        logging.error(f"Error waiting for Claude: {e}")
+                        display_item['status'] = 'failed'
+                        display_item['last_error'] = str(e)
+                        self._update_queue_display()
+                        continue
+                    
+                    # Send prompt to terminal
+                    success = False
+                    try:
+                        logging.info(f"Sending prompt to terminal: {item['prompt'][:50]}...")
+                        
+                        # Find terminal panel
+                        terminal = None
+                        for panel in self.app.panels.values():
+                            if hasattr(panel, 'send_prompt'):
+                                terminal = panel
+                                break
+                        
+                        if not terminal:
+                            raise RuntimeError("No terminal panel found")
+                        
+                        # Send with proper mode
+                        await terminal.send_prompt(item['prompt'], item['mode'])
+                        
+                        # Wait a bit for Claude to start processing
+                        await asyncio.sleep(2.0)
+                        
+                        # Mark as successfully sent and remove from display queue
+                        success = True
+                        processed_count += 1
+                        logging.info(f"Successfully sent prompt {item['id'][:8]}")
+                        
+                        # Remove from display queue
+                        self.prompt_queue.remove(display_item)
+                        self._update_queue_display()
+                        
+                        # Notify user
+                        remaining = len(self.prompt_queue)
+                        if remaining > 0:
+                            self.app.notify(f"Prompt sent! {remaining} remaining in queue", severity="information")
+                        else:
+                            self.app.notify("All prompts processed!", severity="success")
+                        
+                        # Wait between prompts to avoid overwhelming Claude
+                        if remaining > 0:
+                            await asyncio.sleep(3.0)
+                    
+                    except Exception as e:
+                        logging.error(f"Failed to send prompt: {e}")
+                        display_item['status'] = 'failed'
+                        display_item['last_error'] = str(e)
+                        self._update_queue_display()
+                        
+                        # Check retry attempts
+                        if display_item.get('attempts', 0) >= 3:
+                            logging.error(f"Max retries reached for {item['id'][:8]}")
+                            self.prompt_queue.remove(display_item)
+                            self._update_queue_display()
+                            self.app.notify(f"Failed to send prompt after 3 attempts", severity="error")
+                
+                logging.info(f"Queue processor finished. Processed {processed_count} items")
+                
+            except Exception as e:
+                logging.error(f"Queue processor error: {e}", exc_info=True)
+                self.app.notify(f"Queue processor crashed: {e}", severity="error")
+            finally:
+                # Clear processor task reference
+                self._processor_task = None
+                logging.info("Queue processor exited")
+    
     def _update_queue_display(self) -> None:
         """Update the queue display."""
         if not hasattr(self, 'queue_container'):
@@ -1087,42 +1170,68 @@ Output only the enhanced prompt, nothing else."""
         else:
             # Display queue items
             for i, item in enumerate(self.prompt_queue):
-                # Create queue item container
-                queue_item = Vertical(classes="prompt-queue-item")
+                # Create queue item container with horizontal layout
+                queue_item = Horizontal(classes="prompt-queue-item")
                 
                 # Add highlighted class if this is the highlighted item
                 if i == self.highlighted_queue_index:
                     queue_item.add_class("highlighted")
                 
-                # Truncate prompt for display
-                prompt_text = item['prompt']
-                if len(prompt_text) > 80:
-                    prompt_text = prompt_text[:77] + "..."
+                # Check if this item is being edited
+                is_editing = getattr(self, '_editing_index', -1) == i
                 
                 # Add status indicator based on item status
                 item_status = item.get('status', 'pending')
                 if item_status == 'sending':
-                    status = "⚡ Sending: "
+                    status = "⚡"
                     queue_item.add_class("sending")
                 elif item_status == 'failed':
-                    status = "❌ Failed: "
+                    status = "❌"
                     queue_item.add_class("failed")
                 elif item_status == 'pending' and i == 0:
-                    status = "▶️ Next: "
+                    status = "▶️"
                     queue_item.add_class("next")
                 else:
-                    status = f"{i+1}. "
+                    status = f"{i+1}."
                 
                 # Add mode and options indicators
                 mode_indicator = "🔧" if item['mode'] == 'develop' else "🎨"
                 saver_indicator = "💰" if item.get('cost_saver', False) else ""
                 
-                # Create label with full info
-                label = Label(f"{status}{mode_indicator} {prompt_text} {saver_indicator}")
-                queue_item.mount(label)
+                # Create status/mode container
+                status_container = Static(f"{status} {mode_indicator} {saver_indicator}", classes="queue-item-status")
+                queue_item.mount(status_container)
                 
-                # Make it clickable
-                queue_item.can_focus = True
+                if is_editing:
+                    # Show input field for editing
+                    edit_input = Input(
+                        value=item['prompt'],
+                        classes="queue-item-edit",
+                        id=f"edit-input-{i}"
+                    )
+                    queue_item.mount(edit_input)
+                    
+                    # Add save/cancel buttons
+                    save_btn = Button("✓", variant="success", classes="queue-item-save-btn", id=f"save-{i}")
+                    cancel_btn = Button("✗", variant="default", classes="queue-item-cancel-btn", id=f"cancel-{i}")
+                    queue_item.mount(save_btn)
+                    queue_item.mount(cancel_btn)
+                else:
+                    # Show label with prompt text (clickable for editing)
+                    prompt_text = item['prompt']
+                    if len(prompt_text) > 70:
+                        prompt_text = prompt_text[:67] + "..."
+                    
+                    label = Label(prompt_text, classes="queue-item-label", id=f"label-{i}")
+                    label.can_focus = True
+                    label.tooltip = "Click to edit"
+                    queue_item.mount(label)
+                    
+                    # Add delete button
+                    delete_btn = Button("🗑", variant="error", classes="queue-item-delete", id=f"delete-{i}")
+                    delete_btn.tooltip = "Delete this prompt"
+                    queue_item.mount(delete_btn)
+                
                 self.queue_container.mount(queue_item)
     
     def on_click(self, event: Click) -> None:
@@ -1130,26 +1239,93 @@ Output only the enhanced prompt, nothing else."""
         # First call parent's on_click
         super().on_click(event)
         
-        # Check if click is on a queue item
+        # Check if click is on a queue item label
         target = self.app.get_widget_at(*event.screen_offset)
-        if target and hasattr(target, 'parent'):
-            # Find the queue item container
-            widget = target
-            while widget and not widget.has_class("prompt-queue-item"):
-                widget = widget.parent
-            
-            if widget and widget.has_class("prompt-queue-item"):
-                # Find index of clicked item
-                for i, child in enumerate(self.queue_container.children):
-                    if child == widget:
-                        self._edit_queue_item(i)
-                        break
+        if target and hasattr(target, 'id') and target.id and target.id.startswith('label-'):
+            # Extract index from label ID
+            try:
+                index = int(target.id.split('-')[1])
+                self._start_editing(index)
+            except (ValueError, IndexError):
+                pass
     
-    def _edit_queue_item(self, index: int) -> None:
-        """Edit a queue item."""
+    def _start_editing(self, index: int) -> None:
+        """Start in-place editing of a queue item."""
         if 0 <= index < len(self.prompt_queue):
-            task = asyncio.create_task(self._show_edit_dialog(index))
-            task.add_done_callback(self._handle_task_error)
+            self._editing_index = index
+            self._update_queue_display()
+            # Focus the input field
+            edit_input = self.query_one(f"#edit-input-{index}", Input)
+            if edit_input:
+                edit_input.focus()
+    
+    def _save_edit(self, index: int) -> None:
+        """Save the edited prompt."""
+        if 0 <= index < len(self.prompt_queue):
+            edit_input = self.query_one(f"#edit-input-{index}", Input)
+            if edit_input and edit_input.value.strip():
+                self.prompt_queue[index]['prompt'] = edit_input.value.strip()
+                self.app.notify("Prompt updated", severity="information")
+            self._editing_index = -1
+            self._update_queue_display()
+    
+    def _cancel_edit(self) -> None:
+        """Cancel editing."""
+        self._editing_index = -1
+        self._update_queue_display()
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        button_id = event.button.id
+        if button_id and button_id.startswith('save-'):
+            try:
+                index = int(button_id.split('-')[1])
+                self._save_edit(index)
+            except (ValueError, IndexError):
+                pass
+        elif button_id and button_id.startswith('cancel-'):
+            self._cancel_edit()
+        elif button_id and button_id.startswith('delete-'):
+            try:
+                index = int(button_id.split('-')[1])
+                self._delete_queue_item(index)
+            except (ValueError, IndexError):
+                pass
+        else:
+            # Pass to parent class for other buttons
+            super().on_button_pressed(event)
+    
+    def _delete_queue_item(self, index: int) -> None:
+        """Delete a queue item."""
+        if 0 <= index < len(self.prompt_queue):
+            self.prompt_queue.pop(index)
+            # Adjust highlighted index if needed
+            if self.highlighted_queue_index >= len(self.prompt_queue) and self.highlighted_queue_index > 0:
+                self.highlighted_queue_index = len(self.prompt_queue) - 1
+            # Cancel editing if we're deleting the item being edited
+            if self._editing_index == index:
+                self._editing_index = -1
+            elif self._editing_index > index:
+                self._editing_index -= 1
+            self._update_queue_display()
+            self.app.notify("Prompt removed from queue", severity="information")
+    
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input fields."""
+        if event.input.id and event.input.id.startswith('edit-input-'):
+            try:
+                index = int(event.input.id.split('-')[2])
+                self._save_edit(index)
+                event.stop()
+            except (ValueError, IndexError):
+                pass
+    
+    def on_key(self, event: Key) -> None:
+        """Handle key events."""
+        # Handle Escape to cancel editing
+        if event.key == "escape" and self._editing_index >= 0:
+            self._cancel_edit()
+            event.stop()
     
     async def _show_edit_dialog(self, index: int) -> None:
         """Show edit dialog for a queue item."""
@@ -1277,13 +1453,13 @@ Output only the enhanced prompt, nothing else."""
         # Restore prompt queue
         if 'prompt_queue' in state:
             self.prompt_queue = state['prompt_queue']
-            # Don't auto-process restored queue
+            # Mark queue as paused initially so it doesn't auto-process old prompts
             if self.prompt_queue:
-                self.is_processing = True
+                self._queue_paused = True
                 # Reset after a delay to allow manual control
                 async def reset():
                     await asyncio.sleep(3.0)
-                    self.is_processing = False
+                    self._queue_paused = False
                 asyncio.create_task(reset())
             
         if 'highlighted_queue_index' in state:
