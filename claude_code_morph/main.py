@@ -99,8 +99,6 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+s", "save_workspace", "Save Workspace"),
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+shift+r", "reload_all", "Reload All"),
-        Binding("ctrl+t", "focus_terminal", "Focus Terminal"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
     ]
     
@@ -469,32 +467,6 @@ class ClaudeCodeMorph(App):
         selected = workspaces[int(choice) - 1]
         self.call_from_thread(self.load_workspace_file, selected.name)
         
-    def action_reload_all(self) -> None:
-        """Reload all panels manually."""
-        panel_types = set(panel.__class__.__name__ for panel in self.panels.values())
-        
-        self.notify("Reloading all panels...", severity="information")
-        logging.info("Manual reload triggered - reloading all panels")
-        
-        reload_count = 0
-        for panel_type in panel_types:
-            try:
-                self.call_from_thread(self.reload_panel, panel_type)
-                reload_count += 1
-            except Exception as e:
-                logging.error(f"Failed to reload panel {panel_type}: {e}")
-                self.notify(f"Failed to reload {panel_type}", severity="error")
-        
-        self.notify(f"Reloaded {reload_count} panel types", severity="success")
-    
-    def action_focus_terminal(self) -> None:
-        """Focus the terminal panel."""
-        terminal_panel = self.panels.get("terminal")
-        if terminal_panel:
-            terminal_panel.focus()
-            self.notify("Terminal focused - type to interact with Claude", severity="information")
-        else:
-            self.notify("No terminal panel found", severity="warning")
     
     def action_launch_safe_mode(self) -> None:
         """Launch safe mode to fix errors."""
