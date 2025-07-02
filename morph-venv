@@ -1,0 +1,29 @@
+#!/bin/bash
+# Morph launcher with automatic venv activation
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check if we're already in a virtual environment
+if [[ -z "$VIRTUAL_ENV" ]]; then
+    # Look for venv in common locations
+    if [[ -d "$SCRIPT_DIR/venv" ]]; then
+        VENV_DIR="$SCRIPT_DIR/venv"
+    elif [[ -d "$SCRIPT_DIR/.venv" ]]; then
+        VENV_DIR="$SCRIPT_DIR/.venv"
+    elif [[ -d "$SCRIPT_DIR/env" ]]; then
+        VENV_DIR="$SCRIPT_DIR/env"
+    else
+        echo "No virtual environment found. Please create one with:"
+        echo "  python -m venv venv"
+        echo "  source venv/bin/activate"
+        echo "  pip install -e ."
+        exit 1
+    fi
+    
+    echo "Activating virtual environment at $VENV_DIR..."
+    source "$VENV_DIR/bin/activate"
+fi
+
+# Run morph with all arguments passed through
+exec morph "$@"

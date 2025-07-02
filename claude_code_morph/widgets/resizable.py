@@ -17,18 +17,42 @@ class Splitter(Static):
     DEFAULT_CSS = """
     Splitter {
         height: 1;
+        background: transparent;
+        color: $surface-lighten-2;
+        padding: 0;
+        margin: 0 0;
+    }
+    
+    Splitter:hover {
+        color: $primary;
+    }
+    
+    Splitter.dragging {
+        color: $accent;
+    }
+    
+    Splitter.locked {
+        color: $error-darken-2;
+    }
+    
+    Splitter .splitter-line {
+        width: 1fr;
+    }
+    
+    Splitter .lock-icon {
+        width: auto;
+        padding: 0 1;
         background: $panel;
         color: $text-muted;
     }
     
-    Splitter:hover {
+    Splitter .lock-icon:hover {
         background: $primary;
         color: $text;
     }
     
-    Splitter.dragging {
-        background: $accent;
-        color: $text;
+    Splitter.locked .lock-icon {
+        color: $error;
     }
     """
     
@@ -38,15 +62,35 @@ class Splitter(Static):
         Args:
             index: The index of this splitter (which panels it separates)
         """
-        super().__init__("━" * 100, **kwargs)
+        super().__init__(**kwargs)
         self.index = index
         self.dragging = False
         self.drag_start_y = 0
         self.panel_sizes_start = []
+        self.locked = False
+        self.update_content()
         
+    def update_content(self) -> None:
+        """Update the splitter content with lock status."""
+        width = max(1, self.size.width) if hasattr(self, 'size') else 40
+        if self.locked:
+            # Just show a simple line, let CSS handle the color
+            self.update("─" * width)
+            self.add_class("locked")
+        else:
+            self.update("─" * width)
+            self.remove_class("locked")
+            
     def on_mouse_down(self, event: MouseDown) -> None:
         """Start dragging on mouse down."""
         if event.button == 1:  # Left click
+            logging.debug(f"Splitter {self.index} clicked, locked={self.locked}")
+            # Don't allow dragging if locked
+            if self.locked:
+                logging.info(f"Splitter {self.index} is locked, preventing drag")
+                event.stop()
+                return
+                
             self.dragging = True
             self.drag_start_y = event.screen_y
             self.add_class("dragging")
@@ -82,6 +126,11 @@ class Splitter(Static):
                 container.resize_panels(self.index, delta_y, self.panel_sizes_start)
                 
             event.stop()
+            
+    def toggle_lock(self) -> None:
+        """Toggle the lock state of this splitter."""
+        self.locked = not self.locked
+        self.update_content()
 
 
 class ResizableContainer(Container):
@@ -91,11 +140,15 @@ class ResizableContainer(Container):
     ResizableContainer {
         layout: vertical;
         height: 100%;
+        margin: 0;
+        padding: 0;
     }
     
     ResizableContainer > .panel-wrapper {
         width: 100%;
         overflow: hidden;
+        margin: 0;
+        padding: 0;
     }
     """
     
@@ -129,7 +182,7 @@ class ResizableContainer(Container):
                 
                 # Add splitter before panel (except for the first one)
                 if self.panels:
-                    splitter = Splitter(len(self.panels) - 1)
+                    splitter = Splitter(len(self.splitters))
                     self.splitters.append(splitter)
                     result = await super().mount(splitter)
                     if result:
@@ -226,3 +279,6 @@ class ResizableContainer(Container):
         """Handle container resize events."""
         # Reapply sizes when the container is resized
         self._apply_sizes()
+        # Update splitter content to ensure proper width
+        for splitter in self.splitters:
+            splitter.update_content()

@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from .session_manager import SessionManager
 
 console = Console()
 
@@ -50,7 +51,7 @@ class ClaudeCodeMorph(App):
     }
     
     #main-container {
-        height: 100%;
+        height: 99%;
         width: 100%;
     }
     
@@ -60,8 +61,10 @@ class ClaudeCodeMorph(App):
     }
     
     .panel {
-        border: solid blue;
+        border: none;
         height: 100%;
+        margin: 0;
+        padding: 0;
     }
     
     .splitter {
@@ -80,7 +83,9 @@ class ClaudeCodeMorph(App):
     
     TerminalPanel {
         background: #1e1e1e;
-        border: solid green;
+        border: none;
+        margin: 0;
+        padding: 0;
     }
     
     #terminal-output {
@@ -114,6 +119,21 @@ class ClaudeCodeMorph(App):
         self.observer = Observer()
         self.panel_reloader = PanelReloader(self)
         
+        # Initialize session manager
+        self.session_manager = SessionManager()
+        self._auto_save_timer = None
+        
+    def on_parser_error(self, event) -> None:
+        """Handle CSS parser errors."""
+        logging.error(f"CSS Parser Error: {event}")
+        
+    def on_css_change(self, event) -> None:
+        """Log CSS changes and errors."""
+        try:
+            super().on_css_change(event)
+        except Exception as e:
+            logging.error(f"CSS Change Error: {e}", exc_info=True)
+            
     def compose(self) -> ComposeResult:
         """Create the main layout."""
         yield Header()
@@ -131,11 +151,21 @@ class ClaudeCodeMorph(App):
             logging.warning(f"Could not start file watcher for hot-reloading: {e}")
             # Continue without hot-reloading
         
-        # Skip prompt and load default workspace directly
-        self.call_later(lambda: asyncio.create_task(self.load_workspace_file("default.yaml")))
-        
+        # Check for existing session
+        session_info = self.session_manager.get_session_info()
+        if session_info:
+            self.notify(f"Found session from {session_info.get('saved_at', 'unknown time')}")
+            # Load session after workspace
+            self.call_later(lambda: asyncio.create_task(self._load_with_session()))
+        else:
+            # Skip prompt and load default workspace directly
+            self.call_later(lambda: asyncio.create_task(self.load_workspace_file("default.yaml")))
+            
         # Connect the panels after loading with a slight delay to ensure panels are ready
         self.call_later(lambda: self.set_timer(0.1, self._connect_panels))
+        
+        # Start auto-save timer (30 seconds)
+        self._start_auto_save()
         
     async def startup_prompt(self) -> None:
         """Show startup prompt to user."""
@@ -239,7 +269,13 @@ class ClaudeCodeMorph(App):
             # Create panel instance
             panel = panel_class(**params)
             panel.id = panel_id
-            panel.classes = "panel"
+            
+            # Try to set classes and catch CSS errors
+            try:
+                panel.classes = "panel"
+            except Exception as e:
+                logging.error(f"CSS Error setting panel classes: {e}", exc_info=True)
+                self.notify(f"CSS Error: {e}", severity="error")
             
             # Add to layout
             from .widgets.resizable import ResizableContainer
@@ -262,81 +298,122 @@ class ClaudeCodeMorph(App):
             
     async def reload_panel(self, module_name: str) -> None:
         """Hot-reload a panel module."""
-        logging.info(f"reload_panel called for module: {module_name}")
-        
-        # Find panels using this module
-        panels_to_reload = []
-        
-        for panel_id, panel in self.panels.items():
-            if panel.__class__.__name__ == module_name:
-                panels_to_reload.append((panel_id, panel))
-                
-        if not panels_to_reload:
-            logging.warning(f"No panels found using module: {module_name}")
+        # Prevent recursive reloads
+        if hasattr(self, '_reloading') and self._reloading:
+            logging.warning("Already reloading, skipping to prevent recursion")
             return
-        
-        logging.info(f"Found {len(panels_to_reload)} panels to reload")
             
-        for panel_id, old_panel in panels_to_reload:
-            try:
-                # Get panel config
-                params = getattr(old_panel, '_init_params', {})
-                
-                # Preserve state from old panel
-                preserved_state = {}
-                if hasattr(old_panel, '_preserved_state'):
-                    # Save current state
-                    if hasattr(old_panel, 'selected_style'):
-                        preserved_state['selected_style'] = old_panel.selected_style
-                    if hasattr(old_panel, 'selected_mode'):
-                        preserved_state['selected_mode'] = old_panel.selected_mode
-                    if hasattr(old_panel, 'prompt_input') and old_panel.prompt_input:
-                        preserved_state['prompt_text'] = old_panel.prompt_input.text
-                    if hasattr(old_panel, 'prompt_history'):
-                        preserved_state['prompt_history'] = old_panel.prompt_history
-                    if hasattr(old_panel, 'history_index'):
-                        preserved_state['history_index'] = old_panel.history_index
-                
-                # Remove old panel
-                await old_panel.remove()
-                del self.panels[panel_id]
-                
-                # Reload module
-                module_path = self.panels_dir / f"{module_name}.py"
-                spec = importlib.util.spec_from_file_location(module_name, module_path)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                
-                # Create new panel
-                panel_class = getattr(module, module_name)
-                new_panel = panel_class(**params)
-                new_panel.id = panel_id
-                new_panel.classes = "panel"
-                
-                # Restore preserved state
-                if preserved_state and hasattr(new_panel, '_preserved_state'):
-                    for key, value in preserved_state.items():
-                        if hasattr(new_panel, key):
-                            setattr(new_panel, key, value)
-                
-                # Add to layout
-                from .widgets.resizable import ResizableContainer
-                container = self.query_one("#main-container", ResizableContainer)
-                await container.mount(new_panel)
-                
-                self.panels[panel_id] = new_panel
-                self.notify(f"Reloaded panel: {panel_id}")
-                
-                # Restore prompt text after mount
-                if panel_id == "prompt" and preserved_state.get('prompt_text') and hasattr(new_panel, 'prompt_input'):
-                    new_panel.prompt_input.text = preserved_state['prompt_text']
-                
-                # Reconnect panels if this was PromptPanel or we have both panels
-                if panel_id == "prompt" or (panel_id == "terminal" and "prompt" in self.panels):
-                    self._connect_panels()
-                
-            except Exception as e:
-                self.notify(f"Error reloading panel {panel_id}: {e}", severity="error")
+        self._reloading = True
+        try:
+            logging.info(f"reload_panel called for module: {module_name}")
+            
+            # Find panels using this module
+            panels_to_reload = []
+            
+            for panel_id, panel in self.panels.items():
+                if panel.__class__.__name__ == module_name:
+                    panels_to_reload.append((panel_id, panel))
+                    
+            if not panels_to_reload:
+                logging.warning(f"No panels found using module: {module_name}")
+                return
+            
+            logging.info(f"Found {len(panels_to_reload)} panels to reload")
+            
+            for panel_id, old_panel in panels_to_reload:
+                try:
+                    # Get panel config
+                    params = getattr(old_panel, '_init_params', {})
+                    
+                    # Preserve state from old panel
+                    preserved_state = {}
+                    if hasattr(old_panel, '_preserved_state'):
+                        # Save current state
+                        if hasattr(old_panel, 'selected_style'):
+                            preserved_state['selected_style'] = old_panel.selected_style
+                        if hasattr(old_panel, 'selected_mode'):
+                            preserved_state['selected_mode'] = old_panel.selected_mode
+                        if hasattr(old_panel, 'prompt_input') and old_panel.prompt_input:
+                            preserved_state['prompt_text'] = old_panel.prompt_input.text
+                        if hasattr(old_panel, 'prompt_history'):
+                            preserved_state['prompt_history'] = old_panel.prompt_history
+                        if hasattr(old_panel, 'history_index'):
+                            preserved_state['history_index'] = old_panel.history_index
+                    
+                    # Find the wrapper containing the old panel
+                    from .widgets.resizable import ResizableContainer
+                    container = self.query_one("#main-container", ResizableContainer)
+                    
+                    # Find the index of this panel in the container
+                    panel_index = -1
+                    for i, p in enumerate(container.panels):
+                        if p == old_panel:
+                            panel_index = i
+                            break
+                    
+                    if panel_index == -1:
+                        logging.error(f"Could not find panel {panel_id} in container")
+                        return
+                    
+                    # Find the wrapper that contains this panel
+                    wrapper_to_replace = None
+                    for child in container.children:
+                        if hasattr(child, 'children') and old_panel in child.children:
+                            wrapper_to_replace = child
+                            break
+                    
+                    if not wrapper_to_replace:
+                        logging.error(f"Could not find wrapper for panel {panel_id}")
+                        return
+                    
+                    # Reload module
+                    module_path = self.panels_dir / f"{module_name}.py"
+                    spec = importlib.util.spec_from_file_location(module_name, module_path)
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    
+                    # Create new panel
+                    panel_class = getattr(module, module_name)
+                    new_panel = panel_class(**params)
+                    new_panel.id = panel_id
+                    new_panel.classes = "panel"
+                    
+                    # Restore preserved state
+                    if preserved_state and hasattr(new_panel, '_preserved_state'):
+                        for key, value in preserved_state.items():
+                            if hasattr(new_panel, key):
+                                setattr(new_panel, key, value)
+                    
+                    # Replace the old panel in the wrapper
+                    await old_panel.remove()
+                    await wrapper_to_replace.mount(new_panel)
+                    
+                    # Update the panels list in container
+                    container.panels[panel_index] = new_panel
+                    
+                    # Update our panels dict
+                    del self.panels[panel_id]
+                    self.panels[panel_id] = new_panel
+                    self.notify(f"Reloaded panel: {panel_id}")
+                    
+                    # Restore prompt text after mount
+                    if panel_id == "prompt" and preserved_state.get('prompt_text') and hasattr(new_panel, 'prompt_input'):
+                        new_panel.prompt_input.text = preserved_state['prompt_text']
+                    
+                    # Reconnect panels if this was PromptPanel or we have both panels
+                    if panel_id == "prompt" or (panel_id == "terminal" and "prompt" in self.panels):
+                        self._connect_panels()
+                    
+                except Exception as e:
+                    import traceback
+                    error_msg = f"Error reloading panel {panel_id}: {e}"
+                    self.notify(error_msg, severity="error")
+                    logging.error(f"{error_msg}\n{traceback.format_exc()}")
+                    # Try to restore the old panel if something went wrong
+                    if panel_id not in self.panels and old_panel:
+                        self.panels[panel_id] = old_panel
+        finally:
+            self._reloading = False
                 
     def action_save_workspace(self) -> None:
         """Save current workspace configuration."""
@@ -425,8 +502,99 @@ class ClaudeCodeMorph(App):
         else:
             logging.warning(f"Could not connect panels: prompt={prompt_panel}, terminal={terminal_panel}")
             
+    async def _load_with_session(self) -> None:
+        """Load workspace and restore session."""
+        # First load default workspace
+        await self.load_workspace_file("default.yaml")
+        
+        # Then restore session state
+        await asyncio.sleep(0.5)  # Give panels time to initialize
+        self._restore_session()
+        
+    def _save_session(self) -> None:
+        """Save current session state."""
+        try:
+            state = {
+                'workspace': self.current_workspace,
+                'panels': {}
+            }
+            
+            # Get state from each panel
+            for panel_id, panel in self.panels.items():
+                if hasattr(panel, 'get_state'):
+                    state['panels'][panel_id] = panel.get_state()
+                    
+            # Save terminal buffer separately
+            terminal_panel = self.panels.get('terminal')
+            if terminal_panel and hasattr(terminal_panel, 'terminal_buffer'):
+                self.session_manager.save_terminal_buffer(terminal_panel.terminal_buffer)
+                
+            # Save prompt history separately
+            prompt_panel = self.panels.get('prompt')
+            if prompt_panel and hasattr(prompt_panel, 'prompt_history'):
+                self.session_manager.save_prompt_history(prompt_panel.prompt_history)
+                
+            # Save main session
+            self.session_manager.save_session(state)
+            logging.info("Session saved successfully")
+            
+        except Exception as e:
+            logging.error(f"Failed to save session: {e}")
+            
+    def _restore_session(self) -> None:
+        """Restore saved session state."""
+        try:
+            state = self.session_manager.load_session()
+            if not state:
+                return
+                
+            # Restore panel states
+            panel_states = state.get('panels', {})
+            for panel_id, panel_state in panel_states.items():
+                panel = self.panels.get(panel_id)
+                if panel and hasattr(panel, 'restore_state'):
+                    panel.restore_state(panel_state)
+                    
+            # Restore terminal buffer
+            terminal_panel = self.panels.get('terminal')
+            if terminal_panel and hasattr(terminal_panel, 'restore_state'):
+                buffer = self.session_manager.load_terminal_buffer()
+                if buffer:
+                    terminal_panel.terminal_buffer = buffer
+                    terminal_panel._update_display()
+                    
+            # Restore prompt history
+            prompt_panel = self.panels.get('prompt')
+            if prompt_panel and hasattr(prompt_panel, 'prompt_history'):
+                history = self.session_manager.load_prompt_history()
+                if history:
+                    prompt_panel.prompt_history = history
+                    
+            self.notify("Session restored", severity="success")
+            logging.info("Session restored successfully")
+            
+        except Exception as e:
+            logging.error(f"Failed to restore session: {e}")
+            self.notify("Failed to restore session", severity="warning")
+            
+    def _start_auto_save(self) -> None:
+        """Start periodic auto-save timer."""
+        def auto_save():
+            self._save_session()
+            logging.debug("Auto-save completed")
+            
+        # Save every 30 seconds
+        self._auto_save_timer = self.set_timer(30, auto_save, pause=False)
+        
     def on_unmount(self) -> None:
         """Clean up when app exits."""
+        # Save session before exit
+        self._save_session()
+        
+        # Stop auto-save timer
+        if self._auto_save_timer:
+            self._auto_save_timer.stop()
+            
         try:
             if hasattr(self, 'observer') and self.observer.is_alive():
                 self.observer.stop()
@@ -439,13 +607,24 @@ def main():
     # Disable Python bytecode generation for cleaner development
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     
-    # Set up logging
+    # Set up logging with more comprehensive error capture
     logging.basicConfig(
         filename='main.log',
         level=logging.DEBUG,
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
         force=True
     )
+    
+    # Add console handler for immediate error visibility
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setLevel(logging.WARNING)
+    console_handler.setFormatter(logging.Formatter('%(levelname)s - %(name)s - %(message)s'))
+    logging.getLogger().addHandler(console_handler)
+    
+    # Enable Textual CSS error logging
+    logging.getLogger('textual').setLevel(logging.DEBUG)
+    logging.getLogger('textual.css').setLevel(logging.DEBUG)
+    logging.getLogger('textual.dom').setLevel(logging.DEBUG)
     
     # Suppress specific warnings/errors from the SDK
     logging.getLogger('asyncio').setLevel(logging.WARNING)
@@ -462,13 +641,14 @@ def main():
         except Exception as e:
             logging.warning(f"Could not redirect stderr: {e}")
     
-    # Set the working directory to this app's source directory
+    # Set the working directory to the project root directory
     # This allows Claude CLI to edit the app from within itself
     app_dir = Path(__file__).parent
-    os.chdir(app_dir)
+    project_root = app_dir.parent  # Go up one level to project root
+    os.chdir(project_root)
     
     # Inform user about self-editing capability
-    console.print(f"[bold green]Working directory set to: {app_dir}[/bold green]")
+    console.print(f"[bold green]Working directory set to: {project_root}[/bold green]")
     console.print("[yellow]Claude CLI can now edit this app from within itself![/yellow]\n")
     
     # Set up signal handler for Ctrl+C

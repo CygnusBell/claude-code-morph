@@ -8,6 +8,23 @@ from pathlib import Path
 
 def main():
     """Main entry point for the morph command."""
+    # Check if we're in a virtual environment
+    if not os.environ.get('VIRTUAL_ENV'):
+        # Try to find and activate a venv
+        script_dir = Path(__file__).parent.parent  # Get to project root
+        venv_paths = [script_dir / 'venv', script_dir / '.venv', script_dir / 'env']
+        
+        for venv_path in venv_paths:
+            if venv_path.exists() and (venv_path / 'bin' / 'python').exists():
+                # Re-execute with the venv's Python
+                python_path = str(venv_path / 'bin' / 'python')
+                os.execv(python_path, [python_path, '-m', 'claude_code_morph.cli'] + sys.argv[1:])
+        
+        # If no venv found, warn but continue
+        print("⚠️  Warning: No virtual environment detected. It's recommended to run morph in a venv.")
+        print("   Create one with: python -m venv venv && source venv/bin/activate")
+        print()
+    
     parser = argparse.ArgumentParser(description="Claude Code Morph - Self-editable IDE")
     parser.add_argument("--cwd", help="Working directory (defaults to current directory)")
     parser.add_argument("--morph-dir", help="Override morph source directory")

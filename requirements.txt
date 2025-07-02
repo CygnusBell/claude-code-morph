@@ -8,3 +8,4 @@ asyncio==3.4.3
 watchdog==4.0.0
 pyperclip==1.8.2
 pexpect==4.9.0
+pyte==0.8.2

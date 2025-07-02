@@ -2,10 +2,10 @@
 
 import os
 import logging
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Center, Middle, Grid
-from textual.widgets import Static, TextArea, Button, Label, Select
+from textual.widgets import Static, TextArea, Button, Label
 from textual.reactive import reactive
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
@@ -53,26 +53,34 @@ class PromptPanel(BasePanel):
     CSS = BasePanel.DEFAULT_CSS + """
     PromptPanel {
         layout: vertical;
-        height: 100%;
+        height: 99%;
+        margin: 0;
+        padding: 0;
     }
     
-    PromptPanel > Vertical {
-        height: 100%;
+    PromptPanel .prompt-content {
+        height: 1fr;
         width: 100%;
+        margin: 0;
+        padding: 0;
+        layout: vertical;
     }
     
     PromptPanel .panel-title {
-        height: 3;
-        padding: 1;
+        height: 1;
+        padding: 0 1;
         text-align: center;
         background: $primary;
+        margin: 0;
     }
     
     PromptPanel #prompt-input {
         height: 1fr;
         min-height: 10;
         margin: 1;
+        padding: 1;
         background: $surface;
+        border: solid $primary;
     }
     
     PromptPanel .controls-container {
@@ -87,16 +95,32 @@ class PromptPanel(BasePanel):
     PromptPanel .button-controls {
         height: 3;
         layout: horizontal;
-        align: center stretch;
-    }
-    
-    PromptPanel Select {
-        width: 15;
-        margin: 0 1;
+        align: center middle;
+        margin: 0;
+        padding: 1;
     }
     
     PromptPanel #submit-btn {
         margin-left: 2;
+    }
+    
+    PromptPanel #morph-mode-btn {
+        background: $panel;
+        color: $text;
+        border: solid $primary;
+        min-width: 12;
+    }
+    
+    PromptPanel #morph-mode-btn.active {
+        background: darkgreen;
+        color: white;
+        border: solid green;
+    }
+    
+    PromptPanel .mode-indicator {
+        width: 1;
+        padding: 0;
+        margin-right: 0.5;
     }
     
     # Clickable text buttons
@@ -140,15 +164,43 @@ class PromptPanel(BasePanel):
         background: green;
         color: black;
     }
+    
+    /* Confirmation dialog styles */
+    ConfirmDialog {
+        align: center middle;
+    }
+    
+    ConfirmDialog #dialog {
+        grid-size: 1;
+        grid-gutter: 1 2;
+        grid-rows: 1fr 3;
+        padding: 1 2;
+        width: 40;
+        height: 11;
+        border: thick $primary 80%;
+        background: $surface;
+    }
+    
+    ConfirmDialog #question {
+        column-span: 1;
+        height: 1;
+        width: 1fr;
+        content-align: center middle;
+        margin-bottom: 1;
+    }
+    
+    ConfirmDialog #buttons {
+        layout: horizontal;
+        height: 3;
+        align: center middle;
+    }
+    
+    ConfirmDialog Button {
+        width: 12;
+        margin: 0 1;
+    }
     """
     
-    DEFAULT_STYLES = [
-        ("verbose", "Detailed and comprehensive instructions"),
-        ("concise", "Brief and to-the-point"),
-        ("debugger", "Focus on debugging and error analysis"),
-        ("architect", "High-level design and architecture"),
-        ("refactor", "Code improvement and optimization"),
-    ]
     
     def __init__(self, on_submit: Optional[Callable] = None, **kwargs):
         """Initialize the prompt panel.
@@ -170,7 +222,6 @@ class PromptPanel(BasePanel):
         
         # State that should survive hot-reload
         self._preserved_state = {
-            'selected_style': 'verbose',
             'selected_mode': 'develop',
             'prompt_text': '',
             'prompt_history': [],
@@ -180,50 +231,32 @@ class PromptPanel(BasePanel):
     def compose_content(self) -> ComposeResult:
         """Create the panel layout."""
         # Initialize values if not already set
-        if not hasattr(self, 'selected_style'):
-            self.selected_style = "verbose"
         if not hasattr(self, 'selected_mode'):
             self.selected_mode = "develop"
         
-        # Title
-        yield Static("📝 Prompt Generator", classes="panel-title")
-        
-        # Prompt input area
-        self.prompt_input = TextArea(id="prompt-input")
-        yield self.prompt_input
-        
-        # Debug: Log composition
-        logging.debug("Creating controls container")
-        
-        # Controls with 3 dropdowns and action buttons
-        with Horizontal(classes="button-controls"):
-            # Style dropdown
-            self.style_select = Select(
-                [
-                    ("verbose", "Verbose"),
-                    ("concise", "Concise"),
-                    ("debugger", "Debugger"),
-                    ("architect", "Architect"),
-                    ("refactor", "Refactor"),
-                ],
-                id="style-select",
-            )
-            yield self.style_select
+        # Main container to fill remaining space
+        with Vertical(classes="prompt-content"):
+            # Prompt input area - takes up most space
+            self.prompt_input = TextArea(id="prompt-input")
+            yield self.prompt_input
             
-            # Mode dropdown
-            self.mode_select = Select(
-                [
-                    ("develop", "Develop"),
-                    ("morph", "Morph"),
-                ],
-                id="mode-select",
-            )
-            yield self.mode_select
+            # Debug: Log composition
+            logging.debug("Creating controls container")
             
-            # Action buttons
-            yield Button("Submit", variant="primary", id="submit-btn")
-            yield Button("Improve", variant="default", id="optimize-btn")
-            yield Button("Clear", id="clear-btn")
+            # Controls with toggle and action buttons
+            with Horizontal(classes="button-controls"):
+                # Morph Mode toggle button with indicator
+                self.morph_mode_btn = Button(
+                    "○ Morph Mode",
+                    id="morph-mode-btn",
+                    tooltip="Edit the Morph IDE instead of current project"
+                )
+                yield self.morph_mode_btn
+                
+                # Action buttons
+                yield Button("Submit", variant="primary", id="submit-btn")
+                yield Button("Refine with AI", variant="default", id="optimize-btn")
+                yield Button("Clear", id="clear-btn")
     
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -243,11 +276,7 @@ class PromptPanel(BasePanel):
         if event.value == Select.BLANK:
             return  # No selection
             
-        if event.select.id == "style-select" and event.value is not None:
-            # The value is the tuple, we want the first element
-            self.selected_style = event.value
-            self.app.notify(f"Style: {self.selected_style.capitalize()}", severity="information")
-        elif event.select.id == "mode-select" and event.value is not None:
+        if event.select.id == "mode-select" and event.value is not None:
             self.selected_mode = event.value
             mode_desc = "IDE development" if self.selected_mode == "morph" else "Project development"
             self.app.notify(f"Mode: {mode_desc}", severity="information")
@@ -301,10 +330,10 @@ class PromptPanel(BasePanel):
         
     async def _send_to_terminal(self, prompt: str, mode: str) -> None:
         """Send prompt to terminal panel."""
-        # Find terminal panel
+        # Find terminal panel (any panel with send_prompt method)
         terminal = None
         for panel in self.app.panels.values():
-            if panel.__class__.__name__ == "TerminalPanel":
+            if hasattr(panel, 'send_prompt'):
                 terminal = panel
                 break
                 
@@ -320,20 +349,17 @@ class PromptPanel(BasePanel):
         if not prompt:
             self.app.notify("Please enter a prompt to optimize", severity="warning")
             return
-            
-        # Get selected style
-        style = getattr(self, 'selected_style', 'verbose')
         
         # Run optimization in background
-        task = asyncio.create_task(self._optimize_prompt_async(prompt, style))
+        task = asyncio.create_task(self._optimize_prompt_async(prompt))
         task.add_done_callback(self._handle_task_error)
         
-    async def _optimize_prompt_async(self, prompt: str, style: str) -> None:
+    async def _optimize_prompt_async(self, prompt: str) -> None:
         """Optimize prompt asynchronously and submit."""
         self.app.notify("Improving prompt...", severity="information")
         
         try:
-            optimized = await self._call_optimizer(prompt, style)
+            optimized = await self._call_optimizer(prompt)
             self.app.notify("Prompt improved!", severity="success")
             
             # Submit the optimized prompt directly with current mode
@@ -348,13 +374,10 @@ class PromptPanel(BasePanel):
         except Exception as e:
             self.app.notify(f"Optimization failed: {e}", severity="error")
             
-    async def _call_optimizer(self, prompt: str, style: str) -> str:
+    async def _call_optimizer(self, prompt: str) -> str:
         """Call AI optimizer to enhance the prompt."""
-        # Get style description
-        style_desc = dict(self.DEFAULT_STYLES).get(style, "")
         
-        system_prompt = f"""You are a developer assistant that rewrites vague prompts into precise, Claude-friendly instructions.
-Your task is to enhance prompts with a {style} style: {style_desc}
+        system_prompt = """You are a developer assistant that rewrites vague prompts into precise, Claude-friendly instructions.
 
 Guidelines:
 - Preserve the original intent
@@ -405,28 +428,18 @@ Output only the enhanced prompt, nothing else."""
             
         else:
             # Fallback: Simple enhancement
-            return self._simple_enhance(prompt, style)
+            return self._simple_enhance(prompt)
             
-    def _simple_enhance(self, prompt: str, style: str) -> str:
+    def _simple_enhance(self, prompt: str) -> str:
         """Simple prompt enhancement without AI."""
-        # Add style-specific prefix
-        prefixes = {
-            "verbose": "Please provide a detailed implementation for the following:\n\n",
-            "concise": "Task: ",
-            "debugger": "Debug and analyze the following:\n\n",
-            "architect": "Design and architect a solution for:\n\n",
-            "refactor": "Refactor and optimize the following:\n\n",
-        }
-        
-        prefix = prefixes.get(style, "")
+        # Add a generic prefix for clarity
+        prefix = "Please complete the following task:\n\n"
         
         # Add some structure
         enhanced = f"{prefix}{prompt}"
         
-        if style == "verbose":
-            enhanced += "\n\nPlease include:\n- Step-by-step implementation\n- Error handling\n- Code comments\n- Usage examples"
-        elif style == "debugger":
-            enhanced += "\n\nFocus on:\n- Identifying issues\n- Root cause analysis\n- Suggested fixes\n- Prevention strategies"
+        # Add generic helpful guidelines
+        enhanced += "\n\nPlease provide:\n- Clear implementation\n- Proper error handling\n- Relevant code comments"
             
         return enhanced
         
@@ -434,9 +447,8 @@ Output only the enhanced prompt, nothing else."""
         """Clear prompt area with confirmation."""
         # Check if there's any content to clear
         if self.prompt_input.text.strip():
-            # For simplicity, just clear with a notification
-            self.prompt_input.text = ""
-            self.app.notify("Prompt cleared", severity="information")
+            # Show confirmation dialog using run_worker instead of create_task
+            self.app.run_worker(self._confirm_clear, exclusive=True)
         else:
             self.app.notify("Nothing to clear", severity="information")
     
@@ -460,8 +472,8 @@ Output only the enhanced prompt, nothing else."""
                 self.dismiss(event.button.id == "yes")
         
         # Show dialog and wait for result
-        result = await self.app.push_screen(ConfirmDialog(), wait_for_dismiss=False)
-        if await result:
+        result = await self.app.push_screen(ConfirmDialog(), wait_for_dismiss=True)
+        if result:
             # User confirmed - clear the prompt
             self.prompt_input.text = ""
             self.app.notify("Prompt cleared", severity="information")
@@ -527,3 +539,54 @@ Output only the enhanced prompt, nothing else."""
         except Exception as e:
             logging.error(f"Error in get_selected_content: {e}")
         return None
+    
+    def get_state(self) -> Dict[str, Any]:
+        """Get current panel state for persistence.
+        
+        Returns:
+            Dictionary containing panel state
+        """
+        state = {
+            'selected_mode': getattr(self, 'selected_mode', 'develop'),
+            'prompt_history': self.prompt_history.copy() if hasattr(self, 'prompt_history') else [],
+            'history_index': getattr(self, 'history_index', -1)
+        }
+        
+        # Get current prompt text if available
+        if hasattr(self, 'prompt_input') and self.prompt_input:
+            state['current_prompt'] = self.prompt_input.text
+            
+        return state
+        
+    def restore_state(self, state: Dict[str, Any]) -> None:
+        """Restore panel state from saved data.
+        
+        Args:
+            state: Dictionary containing saved panel state
+        """
+        # Restore selections
+        if 'selected_mode' in state:
+            self.selected_mode = state['selected_mode']
+            # Update the select widget if it exists
+            if hasattr(self, 'mode_select'):
+                try:
+                    # Find the option that matches our mode
+                    for option in self.mode_select._options:
+                        if option.value == self.selected_mode:
+                            self.mode_select.value = option.value
+                            break
+                except:
+                    pass
+                    
+        # Restore prompt history
+        if 'prompt_history' in state:
+            self.prompt_history = state['prompt_history']
+            
+        if 'history_index' in state:
+            self.history_index = state['history_index']
+            
+        # Restore current prompt text
+        if 'current_prompt' in state and hasattr(self, 'prompt_input') and self.prompt_input:
+            self.prompt_input.text = state['current_prompt']
+            
+        logging.info(f"PromptPanel state restored: mode={self.selected_mode}")
