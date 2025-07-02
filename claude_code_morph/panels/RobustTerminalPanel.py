@@ -59,9 +59,9 @@ class RobustTerminalPanel(BasePanel):
     """
     
     BINDINGS = BasePanel.BINDINGS + [
-        Binding("ctrl+c", "interrupt", "Interrupt"),
-        Binding("ctrl+r", "restart", "New Session"),
-        Binding("ctrl+d", "send_eof", "Send EOF"),
+        Binding("ctrl+c", "interrupt", "Interrupt", show=False),
+        Binding("ctrl+r", "restart", "New Session", show=False),
+        Binding("ctrl+d", "send_eof", "Send EOF", show=False),
     ]
     
     def __init__(self, **kwargs):

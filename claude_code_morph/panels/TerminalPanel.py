@@ -207,8 +207,8 @@ class TerminalPanel(BasePanel):
     """
     
     BINDINGS = BasePanel.BINDINGS + [
-        Binding("ctrl+c", "interrupt", "Interrupt", priority=True),
-        Binding("ctrl+r", "restart", "Restart Session"),
+        Binding("ctrl+c", "interrupt", "Interrupt", priority=True, show=False),
+        Binding("ctrl+r", "restart", "Restart Session", show=False),
         Binding("shift+tab", "pass_through", "Pass to Claude", priority=True),
         Binding("escape", "pass_through_escape", "Pass Escape", priority=True),
     ]

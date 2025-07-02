@@ -40,8 +40,8 @@ class PipeTerminalPanel(BasePanel):
     """
     
     BINDINGS = BasePanel.BINDINGS + [
-        Binding("ctrl+c", "interrupt", "Interrupt"),
-        Binding("ctrl+r", "restart", "New Session"),
+        Binding("ctrl+c", "interrupt", "Interrupt", show=False),
+        Binding("ctrl+r", "restart", "Restart Session", show=False),
     ]
     
     def __init__(self, **kwargs):

@@ -25,8 +25,8 @@ class CLITerminalPanel(BasePanel):
     CSS = BasePanel.DEFAULT_CSS
     
     BINDINGS = BasePanel.BINDINGS + [
-        Binding("ctrl+c", "interrupt", "Interrupt"),
-        Binding("ctrl+r", "restart", "Restart Session"),
+        Binding("ctrl+c", "interrupt", "Interrupt", show=False),
+        Binding("ctrl+r", "restart", "Restart Session", show=False),
     ]
     
     def __init__(self, **kwargs):

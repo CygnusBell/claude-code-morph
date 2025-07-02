@@ -20,8 +20,8 @@ class SDKTerminalPanel(BasePanel):
     CSS = BasePanel.DEFAULT_CSS
     
     BINDINGS = BasePanel.BINDINGS + [
-        Binding("ctrl+k", "interrupt", "Interrupt"),
-        Binding("ctrl+r", "restart", "Restart Session"),
+        Binding("ctrl+k", "interrupt", "Interrupt", show=False),
+        Binding("ctrl+r", "restart", "Restart Session", show=False),
     ]
     
     def __init__(self, **kwargs):
