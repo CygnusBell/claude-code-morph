@@ -7,6 +7,7 @@ import pyte
 import threading
 import queue
 import logging
+import time
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from textual.app import ComposeResult
@@ -91,6 +92,12 @@ class EmulatedTerminalPanel(BasePanel):
         self.terminal_screen = pyte.Screen(120, 40)  # 120 columns, 40 rows
         self.terminal_stream = pyte.ByteStream(self.terminal_screen)
         
+        # Performance optimization: cache frequently accessed properties
+        self._screen_lines = 40
+        self._screen_columns = 120
+        self._cached_screen_text = ""
+        self._screen_dirty = True
+        
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
         logging.debug("EmulatedTerminalPanel.compose_content called")
@@ -147,7 +154,7 @@ class EmulatedTerminalPanel(BasePanel):
             
             logging.info(f"Started Claude CLI in directory: {working_dir}")
             
-            self.claude_process.delaybeforesend = 0.1
+            self.claude_process.delaybeforesend = 0
             self.running = True
             
             # Start output reader thread
@@ -180,33 +187,96 @@ class EmulatedTerminalPanel(BasePanel):
             logging.error(f"Failed to start Claude CLI: {e}", exc_info=True)
             
     def _read_output_loop(self) -> None:
-        """Read output from Claude process in a separate thread."""
+        """Read output from Claude process in a separate thread with optimized batching."""
+        consecutive_timeouts = 0
+        max_consecutive_timeouts = 50  # Allow up to 5 seconds of no data before increasing timeout
+        base_timeout = 0.01  # Start with very short timeout for responsiveness
+        max_timeout = 0.5    # Max timeout when no data is available
+        
         try:
             while self.running and self.claude_process and self.claude_process.isalive():
+                batch_data = []
+                batch_start_time = threading.Event()
+                current_timeout = base_timeout
+                
+                # Adaptive timeout based on recent activity
+                if consecutive_timeouts > max_consecutive_timeouts:
+                    current_timeout = min(max_timeout, base_timeout * (consecutive_timeouts // 10))
+                
                 try:
-                    # Read raw bytes for terminal emulator
-                    chunk = self.claude_process.read_nonblocking(size=4096, timeout=0.1)
+                    # First read - use adaptive timeout
+                    chunk = self.claude_process.read_nonblocking(size=8192, timeout=current_timeout)
                     if chunk:
+                        consecutive_timeouts = 0  # Reset timeout counter on successful read
                         # Convert to bytes if needed
                         if isinstance(chunk, str):
                             chunk = chunk.encode('utf-8')
-                        self.output_queue.put(('output', chunk))
+                        batch_data.append(chunk)
+                        
+                        # Try to read more data immediately if available (batching)
+                        # This improves throughput when Claude is producing lots of output
+                        batch_attempts = 0
+                        max_batch_attempts = 10  # Limit batching to prevent blocking too long
+                        
+                        while batch_attempts < max_batch_attempts:
+                            try:
+                                # Very short timeout for batching additional data
+                                extra_chunk = self.claude_process.read_nonblocking(size=8192, timeout=0.001)
+                                if extra_chunk:
+                                    if isinstance(extra_chunk, str):
+                                        extra_chunk = extra_chunk.encode('utf-8')
+                                    batch_data.append(extra_chunk)
+                                    batch_attempts += 1
+                                else:
+                                    break
+                            except pexpect.TIMEOUT:
+                                break  # No more data available for batching
+                            except (pexpect.EOF, Exception):
+                                break  # Stop batching on errors
+                        
+                        # Send batched data as a single message
+                        if len(batch_data) == 1:
+                            self.output_queue.put(('output', batch_data[0]))
+                        else:
+                            # Combine multiple chunks for more efficient processing
+                            combined_data = b''.join(batch_data)
+                            self.output_queue.put(('output', combined_data))
+                            
+                            # Log batching efficiency for debugging
+                            if len(batch_data) > 1:
+                                logging.debug(f"Batched {len(batch_data)} chunks into {len(combined_data)} bytes")
+                    
                 except pexpect.TIMEOUT:
+                    consecutive_timeouts += 1
                     continue
                 except pexpect.EOF:
+                    logging.info("Claude process ended (EOF)")
                     self.output_queue.put(('eof', None))
                     break
                 except Exception as e:
                     if self.running:
-                        logging.error(f"Error reading from Claude: {e}")
-                        self.output_queue.put(('error', str(e)))
-                    break
+                        # More robust error handling
+                        if "Input/output error" in str(e) or "Bad file descriptor" in str(e):
+                            logging.warning(f"Claude process likely terminated: {e}")
+                            self.output_queue.put(('eof', None))
+                            break
+                        else:
+                            logging.error(f"Error reading from Claude: {e}")
+                            self.output_queue.put(('error', str(e)))
+                            # Don't break immediately on non-fatal errors, try to recover
+                            consecutive_timeouts += 1
+                            if consecutive_timeouts > 100:  # Give up after too many errors
+                                logging.error("Too many consecutive errors, terminating reader thread")
+                                break
+                    else:
+                        break
                     
         except Exception as e:
-            logging.error(f"Reader thread crashed: {e}")
+            logging.error(f"Reader thread crashed: {e}", exc_info=True)
         finally:
             self.running = False
             self.output_queue.put(('exit', None))
+            logging.info("Reader thread exiting")
             
     async def _process_output_queue(self) -> None:
         """Process output from the queue and update the terminal emulator."""
@@ -218,6 +288,8 @@ class EmulatedTerminalPanel(BasePanel):
                     if msg_type == 'output':
                         # Feed data to terminal emulator
                         self.terminal_stream.feed(data)
+                        # Mark screen as dirty for next update
+                        self._screen_dirty = True
                         # Update display
                         self._update_display()
                         
@@ -249,77 +321,99 @@ class EmulatedTerminalPanel(BasePanel):
                     elif msg_type == 'exit':
                         break
                         
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.005)
                 
             except queue.Empty:
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.005)
             except Exception as e:
                 logging.error(f"Error processing output queue: {e}")
                 
     def _get_screen_text(self) -> str:
-        """Get the current screen content as text."""
-        lines = []
-        for y in range(self.terminal_screen.lines):
-            line = ""
-            for x in range(self.terminal_screen.columns):
-                char = self.terminal_screen.buffer[y][x]
-                line += char.data or " "
-            lines.append(line.rstrip())
-        return '\n'.join(lines)
+        """Get the current screen content as text with optimized string operations."""
+        # Use cached result if screen hasn't changed
+        if not self._screen_dirty:
+            return self._cached_screen_text
+            
+        # Pre-allocate list for better memory efficiency
+        lines = [None] * self._screen_lines
+        
+        # Optimize by processing entire rows at once
+        buffer = self.terminal_screen.buffer
+        for y in range(self._screen_lines):
+            # Extract character data in one pass, avoiding repeated attribute access
+            row = buffer[y]
+            char_data = [char.data or " " for char in row.values()]
+            # Join all characters at once instead of repeated concatenation
+            lines[y] = ''.join(char_data).rstrip()
+        
+        # Cache the result
+        self._cached_screen_text = '\n'.join(lines)
+        self._screen_dirty = False
+        return self._cached_screen_text
         
     def _update_display(self) -> None:
-        """Update the display with the current terminal screen content."""
+        """Update the display with optimized screen rendering."""
         try:
-            # Get the terminal screen as lines
-            lines = []
-            for y in range(self.terminal_screen.lines):
-                line = ""
-                for x in range(self.terminal_screen.columns):
-                    char = self.terminal_screen.buffer[y][x]
-                    line += char.data or " "
-                # Strip trailing spaces but preserve content
-                lines.append(line.rstrip())
+            # Mark screen as dirty for next _get_screen_text call
+            self._screen_dirty = True
             
-            # Remove trailing empty lines
+            # Use optimized screen text extraction
+            screen_content = self._get_screen_text()
+            lines = screen_content.split('\n')
+            
+            # Remove trailing empty lines efficiently
             while lines and not lines[-1]:
                 lines.pop()
                 
             # Clear and rewrite the display for pyte terminal emulation
             # This is necessary because pyte maintains the full screen state
             self.screen_display.clear()
-            for line in lines:
-                if line:  # Only write non-empty lines
-                    self.screen_display.write(line)
+            
+            # Batch write non-empty lines
+            non_empty_lines = [line for line in lines if line]
+            for line in non_empty_lines:
+                self.screen_display.write(line)
                 
-            # Check if Claude is ready (showing prompt)
+            # Optimize prompt detection by checking only last few lines
             if lines:
-                # Check last few lines for prompt
-                for i, line in enumerate(lines[-5:]):
+                # Only check last 5 lines for performance
+                last_lines = lines[-5:] if len(lines) >= 5 else lines
+                
+                for i, line in enumerate(last_lines):
                     line_text = line.strip()
-                    # Log what we're seeing in the last lines
+                    # Log what we're seeing in the last lines (only first line to reduce spam)
                     if i == 0:
-                        logging.debug(f"Checking last 5 lines for prompt...")
+                        logging.debug(f"Checking last {len(last_lines)} lines for prompt...")
                     logging.debug(f"  Line {i}: '{line_text[:50]}...'")
                     
-                    # Claude shows "Human: " or just "Human:" when ready for input
-                    # Also check for the prompt symbol ">"
-                    if ("Human:" in line_text or 
-                        line_text.endswith("Human:") or 
-                        line_text == ">" or 
-                        line_text.endswith(" >") or
-                        (line_text == "" and i > 0 and lines[-5:][i-1].strip().endswith("Human:"))):
+                    # Pre-compiled prompt detection patterns for better performance
+                    if self._is_claude_prompt(line_text, i, last_lines):
                         self._is_processing = False
                         self._claude_started = True
                         self.status.update("Status: [green]Ready[/green]")
                         logging.info(f"Claude is ready - found prompt indicator: '{line_text}'")
                         break
                     
-            # Debug: Log if we see file operation messages (disabled to prevent log flooding)
-            # content = '\n'.join(lines)
-            # if any(phrase in content.lower() for phrase in ['created', 'updated', 'wrote', 'edit', 'file']):
-            #     logging.debug(f"File operation detected in output: {content[-200:]}")
         except Exception as e:
             logging.error(f"Error updating display: {e}")
+            
+    def _is_claude_prompt(self, line_text: str, line_index: int, last_lines: List[str]) -> bool:
+        """Optimized Claude prompt detection."""
+        # Claude shows "Human: " or just "Human:" when ready for input
+        # Also check for the prompt symbol ">"
+        if ("Human:" in line_text or 
+            line_text.endswith("Human:") or 
+            line_text == ">" or 
+            line_text.endswith(" >")):
+            return True
+            
+        # Check for empty line following Human: prompt
+        if (line_text == "" and line_index > 0 and 
+            line_index < len(last_lines) and 
+            last_lines[line_index - 1].strip().endswith("Human:")):
+            return True
+            
+        return False
             
     async def send_prompt(self, prompt: str, mode: str = "develop") -> None:
         """Send a prompt to Claude CLI."""
@@ -345,12 +439,10 @@ class EmulatedTerminalPanel(BasePanel):
             # Send the prompt text
             self.claude_process.send(prompt)
             
-            # Auto-submit with Enter
-            await asyncio.sleep(0.1)
+            # Auto-submit with Enter (no delay needed)
             self.claude_process.send('\r')
             
-            # Update status
-            await asyncio.sleep(0.5)
+            # Update status immediately
             self.status.update("Status: [green]Active[/green]")
             
             # Add to history
@@ -387,63 +479,53 @@ class EmulatedTerminalPanel(BasePanel):
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=1)
             
-        # Clear screen
+        # Clear screen and reset cache
         self.terminal_screen.reset()
         self.conversation_history.clear()
+        self._screen_dirty = True
+        self._cached_screen_text = ""
         self._update_display()
         
         # Start new session
         self.screen_display.write("[yellow]Restarting Claude CLI...[/yellow]")
         await self.start_claude_cli()
         
+    # Optimized key mapping dictionary for fast lookups
+    _KEY_MAP = {
+        "up": '\x1b[A',
+        "down": '\x1b[B', 
+        "left": '\x1b[D',
+        "right": '\x1b[C',
+        "home": '\x01',
+        "end": '\x05',
+        "backspace": '\x7f',
+        "delete": '\x1b[3~',
+        "enter": '\r',
+        "tab": '\t',
+        "shift+tab": '\x1b[Z',
+        "escape": '\x1b'
+    }
+    
     async def on_key(self, event: Key) -> None:
-        """Handle keyboard input and send to Claude process."""
+        """Handle keyboard input and send to Claude process with optimized performance."""
         if not self.claude_process or not self.claude_process.isalive():
             return
             
-        # Get the key
-        key = event.key
-        
-        # Handle special keys
-        if key == "up":
-            self.claude_process.send('\x1b[A')
-        elif key == "down":
-            self.claude_process.send('\x1b[B')
-        elif key == "left":
-            self.claude_process.send('\x1b[D')
-        elif key == "right":
-            self.claude_process.send('\x1b[C')
-        elif key == "home":
-            self.claude_process.send('\x01')
-        elif key == "end":
-            self.claude_process.send('\x05')
-        elif key == "backspace":
-            self.claude_process.send('\x7f')
-        elif key == "delete":
-            self.claude_process.send('\x1b[3~')
-        elif key == "enter":
-            self.claude_process.send('\r')
-        elif key == "tab":
-            self.claude_process.send('\t')
-        elif key == "shift+tab":
-            self.claude_process.send('\x1b[Z')
-        elif key == "escape":
-            self.claude_process.send('\x1b')
+        # Fast dictionary lookup for special keys
+        key_sequence = self._KEY_MAP.get(event.key)
+        if key_sequence:
+            self.claude_process.send(key_sequence)
         elif event.character and len(event.character) == 1:
+            # Direct character send for regular keys
             self.claude_process.send(event.character)
             
         event.stop()
         
     def get_state(self) -> Dict[str, Any]:
-        """Get current panel state for persistence."""
-        # Get screen content as text
-        lines = []
-        for y in range(self.terminal_screen.lines):
-            line = ""
-            for x in range(self.terminal_screen.columns):
-                char = self.terminal_screen.buffer[y][x]
-                line += char.data or " "
-            lines.append(line.rstrip())
+        """Get current panel state for persistence with optimized screen access."""
+        # Use optimized screen text extraction and split into lines
+        screen_text = self._get_screen_text()
+        lines = screen_text.split('\n')
             
         return {
             'screen_content': lines,
