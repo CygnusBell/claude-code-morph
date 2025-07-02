@@ -94,7 +94,7 @@ class PromptPanel(BasePanel):
         layout: horizontal;
         align: center middle;
         margin: 0;
-        padding: 1;
+        padding: 0 1;
     }
     
     PromptPanel #submit-btn {
@@ -199,7 +199,7 @@ class PromptPanel(BasePanel):
     PromptPanel .prompt-queue-container {
         height: 1fr;
         min-height: 5;
-        margin: 1;
+        margin: 0;
         padding: 0;
         background: $surface;
         border: solid $primary;
@@ -455,10 +455,16 @@ class PromptPanel(BasePanel):
     async def _monitor_queue(self) -> None:
         """Monitor the queue and ensure it's processed when Claude is idle."""
         import time
+        monitor_cycle = 0
         
         while True:
             try:
                 await asyncio.sleep(2.0)  # Check every 2 seconds
+                monitor_cycle += 1
+                
+                # Log status every 10 cycles (20 seconds)
+                if monitor_cycle % 10 == 0 and (self.prompt_queue or self.is_processing):
+                    logging.info(f"Queue monitor status: queue_size={len(self.prompt_queue)}, is_processing={self.is_processing}")
                 
                 # Watchdog: Check if processor has been stuck for too long
                 if self.is_processing and self._last_process_time > 0:
@@ -479,16 +485,27 @@ class PromptPanel(BasePanel):
                             break
                     
                     if terminal:
-                        is_claude_processing = terminal.is_claude_processing()
-                        if not is_claude_processing:
-                            # Claude is idle and we have items in queue - process them
-                            logging.info(f"Queue monitor: Found {len(self.prompt_queue)} items in queue, Claude is idle, starting processor")
+                        try:
+                            is_claude_processing = terminal.is_claude_processing()
+                            if not is_claude_processing:
+                                # Claude is idle and we have items in queue - process them
+                                logging.info(f"Queue monitor: Found {len(self.prompt_queue)} items in queue, Claude is idle, starting processor")
+                                asyncio.create_task(self._process_queue())
+                            else:
+                                logging.debug("Queue monitor: Claude is still processing")
+                        except Exception as e:
+                            logging.error(f"Error checking Claude state: {e}")
+                    else:
+                        # No terminal with is_claude_processing found
+                        if monitor_cycle % 30 == 0:  # Log every minute
+                            logging.warning("Queue monitor: No terminal panel found with is_claude_processing method")
+                        # Try to process anyway after a longer wait
+                        if not self.is_processing:
+                            logging.info("Queue monitor: Starting processor without Claude state check")
                             asyncio.create_task(self._process_queue())
-                        else:
-                            logging.debug("Queue monitor: Claude is still processing")
                     
             except Exception as e:
-                logging.error(f"Queue monitor error: {e}")
+                logging.error(f"Queue monitor error: {e}", exc_info=True)
                 await asyncio.sleep(5.0)  # Wait longer on error
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -874,6 +891,7 @@ Output only the enhanced prompt, nothing else."""
         try:
             import time
             self._last_process_time = time.time()  # Set watchdog timer
+            processed_count = 0
             
             while self.prompt_queue:
                 logging.info(f"Processing queue with {len(self.prompt_queue)} items")
@@ -894,20 +912,35 @@ Output only the enhanced prompt, nothing else."""
                 cost_saver = item['cost_saver']
                 
                 logging.info(f"Processing prompt: {prompt[:50]}...")
+                self.app.notify(f"Processing prompt {processed_count + 1}/{len(self.prompt_queue) + processed_count}", severity="information")
                 
                 # Update display to show processing
                 self._update_queue_display()
                 
                 # Process with cost saver if enabled
                 if cost_saver:
-                    prompt = await self._call_optimizer(prompt)
+                    self.app.notify("Optimizing prompt with Token Saver...", severity="information")
+                    try:
+                        prompt = await self._call_optimizer(prompt)
+                    except Exception as e:
+                        logging.error(f"Failed to optimize prompt: {e}")
+                        self.app.notify(f"Token Saver failed: {e}", severity="warning")
                 
                 # Send to terminal
                 logging.info(f"Sending prompt to terminal: mode={mode}, has_on_submit={bool(self.on_submit)}")
-                if self.on_submit:
-                    await self._async_submit(prompt, mode)
-                else:
-                    await self._send_to_terminal(prompt, mode)
+                try:
+                    if self.on_submit:
+                        await self._async_submit(prompt, mode)
+                    else:
+                        await self._send_to_terminal(prompt, mode)
+                    
+                    # Successfully sent
+                    processed_count += 1
+                    
+                except Exception as e:
+                    logging.error(f"Failed to send prompt: {e}")
+                    self.app.notify(f"Failed to send prompt: {e}", severity="error")
+                    # Continue with next prompt instead of breaking
                 
                 # Wait longer to ensure the prompt is fully sent and processed
                 await asyncio.sleep(2.0)
@@ -920,7 +953,16 @@ Output only the enhanced prompt, nothing else."""
                 self._last_process_time = time.time()
                 
                 logging.info(f"Prompt processed, {len(self.prompt_queue)} items remaining")
+            
+            # Notify completion
+            if processed_count > 0:
+                self.app.notify(f"Queue processing complete: {processed_count} prompts sent", severity="success")
+            else:
+                self.app.notify("Queue processing complete: No prompts were sent", severity="warning")
                 
+        except Exception as e:
+            logging.error(f"Queue processing error: {e}", exc_info=True)
+            self.app.notify(f"Queue processing error: {e}", severity="error")
         finally:
             self.is_processing = False
             self._last_process_time = 0  # Reset watchdog timer
@@ -938,19 +980,34 @@ Output only the enhanced prompt, nothing else."""
             # Poll until Claude is idle (showing Human: prompt)
             max_wait = 300  # 5 minutes max wait
             waited = 0
+            last_state_log = 0  # Track when we last logged the state
+            
             while waited < max_wait:
                 # Check if Claude is processing
                 is_processing = terminal.is_claude_processing()
+                
+                # Log state every 5 seconds to debug
+                if waited - last_state_log >= 5:
+                    logging.info(f"Waiting for Claude: is_processing={is_processing}, waited={waited:.1f}s")
+                    last_state_log = waited
+                
                 if not is_processing:
                     # Claude is idle, we can proceed
+                    logging.info(f"Claude is idle after waiting {waited:.1f}s")
                     break
+                    
                 await asyncio.sleep(0.5)
                 waited += 0.5
+            
+            if waited >= max_wait:
+                logging.warning(f"Timeout waiting for Claude to become idle after {max_wait}s")
+                self.app.notify("Warning: Claude may be stuck. Proceeding anyway...", severity="warning")
             
             # Extra wait to ensure prompt is visible and Claude is ready
             await asyncio.sleep(1.5)
         else:
             # Fallback: wait a fixed time
+            logging.warning("No terminal panel found with is_claude_processing method, using fallback wait")
             await asyncio.sleep(2.0)
     
     def _update_queue_display(self) -> None:

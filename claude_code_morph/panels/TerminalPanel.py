@@ -123,6 +123,10 @@ class TerminalWidget(Static):
         content = "\n".join(lines)
         self.update(content)
         
+        # Notify parent panel about content changes for state detection
+        if hasattr(self.parent, '_detect_claude_state'):
+            self.parent._detect_claude_state(content)
+        
         # Log for debugging if we see interesting content
         if any(keyword in content.lower() for keyword in ['hello', 'claude:', 'error', 'response']):
             logging.info(f"Terminal shows interesting content: {content[-200:]}")
@@ -222,6 +226,8 @@ class TerminalPanel(BasePanel):
         self.read_thread: Optional[threading.Thread] = None
         self.running = False
         self.terminal_widget: Optional[TerminalWidget] = None
+        self._is_claude_processing = False  # Track if Claude is processing
+        self._claude_ready = False  # Track if Claude has shown initial prompt
         
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
@@ -231,6 +237,7 @@ class TerminalPanel(BasePanel):
             # Terminal widget - works with or without pyte
             # Use larger size for better visibility
             self.terminal_widget = TerminalWidget(rows=50, cols=150, id="terminal-output")
+            self.terminal_widget.parent = self  # Set parent reference for state detection
             yield self.terminal_widget
             
             # Status bar
@@ -288,7 +295,7 @@ class TerminalPanel(BasePanel):
                 )
                 self.read_thread.start()
                 
-                self.status.update("Status: [green]Ready[/green]")
+                self.status.update("Status: [green]Starting...[/green]")
                 logging.info(f"Started Claude CLI with PID {pid}")
                 
                 # Check if process is actually running
@@ -302,6 +309,18 @@ class TerminalPanel(BasePanel):
                         # Add initial message to show terminal is ready
                         self.terminal_widget.feed(b"Claude CLI started successfully. Waiting for initialization...\r\n")
                         self.terminal_widget.refresh_display()
+                    
+                    # Set a timeout to assume Claude is ready if we don't detect the prompt
+                    async def check_ready():
+                        await asyncio.sleep(5.0)  # Give Claude 5 seconds to show initial prompt
+                        if not self._claude_ready:
+                            logging.info("Claude startup timeout - assuming ready after 5 seconds")
+                            self._claude_ready = True
+                            self._is_claude_processing = False
+                            self.status.update("Status: [green]Ready[/green]")
+                    
+                    asyncio.create_task(check_ready())
+                    
                 except ProcessLookupError:
                     logging.error(f"Claude CLI process {pid} died immediately")
                     self.terminal_widget.update("Claude CLI failed to start properly")
@@ -393,41 +412,73 @@ class TerminalPanel(BasePanel):
                 self.terminal_widget.feed(b"\r\nClaude CLI is not running. Press Ctrl+R to restart.\r\n")
             return
             
+        # Mark Claude as processing
+        self._is_claude_processing = True
+        self.status.update("Status: [yellow]Sending prompt...[/yellow]")
+        
         # Process based on mode
         processed_prompt = self._process_prompt_with_mode(prompt, mode)
         
-        try:
-            # Clear any existing input line first
-            os.write(self.pty_master, b'\x15')  # Ctrl+U to clear line
-            
-            # Send prompt to Claude CLI
-            data = processed_prompt.encode('utf-8')
-            
-            # Send the prompt character by character with small delays
-            # This mimics human typing which might help Claude recognize input
-            for char in data:
-                os.write(self.pty_master, bytes([char]))
-                await asyncio.sleep(0.001)  # 1ms between chars
-            
-            # Now send newline to submit
-            os.write(self.pty_master, b'\n')
-            
-            # Update status
-            self.status.update(f"Status: [yellow]Processing...[/yellow] ({len(prompt)} chars)")
-            
-            # Log that we sent the prompt
-            logging.info(f"Sent prompt to Claude CLI: {prompt[:50]}...")
-            
-            # Force multiple display refreshes to catch the response
-            for i in range(10):
-                await asyncio.sleep(0.5)
+        # Store the prompt for confirmation checking
+        self._last_prompt_sent = processed_prompt
+        self._prompt_confirmed = False
+        
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Clear any existing input line first
+                os.write(self.pty_master, b'\x15')  # Ctrl+U to clear line
+                await asyncio.sleep(0.1)
+                
+                # Send prompt to Claude CLI
+                data = processed_prompt.encode('utf-8')
+                
+                # Send the prompt character by character with small delays
+                # This mimics human typing which might help Claude recognize input
+                for char in data:
+                    os.write(self.pty_master, bytes([char]))
+                    await asyncio.sleep(0.001)  # 1ms between chars
+                
+                # Now send newline to submit
+                os.write(self.pty_master, b'\n')
+                
+                # Update status
+                self.status.update(f"Status: [yellow]Verifying prompt delivery...[/yellow]")
+                
+                # Wait and check if prompt was confirmed
+                confirmed = False
+                for check in range(10):  # Check for 5 seconds
+                    await asyncio.sleep(0.5)
+                    if self.terminal_widget:
+                        self.terminal_widget.refresh_display()
+                    
+                    if hasattr(self, '_prompt_confirmed') and self._prompt_confirmed:
+                        confirmed = True
+                        break
+                
+                if confirmed:
+                    logging.info("Prompt delivery confirmed")
+                    self.status.update(f"Status: [yellow]Processing...[/yellow] ({len(prompt)} chars)")
+                    break
+                else:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        logging.warning(f"Prompt delivery not confirmed, retrying ({retry_count}/{max_retries})...")
+                        await asyncio.sleep(1.0)
+                    
+            except Exception as e:
+                # Reset processing state on error
+                self._is_claude_processing = False
                 if self.terminal_widget:
-                    self.terminal_widget.refresh_display()
-            
-        except Exception as e:
-            if self.terminal_widget:
-                self.terminal_widget.feed(f"\r\nError sending prompt: {e}\r\n".encode())
-            logging.error(f"Error sending prompt: {e}")
+                    self.terminal_widget.feed(f"\r\nError sending prompt: {e}\r\n".encode())
+                logging.error(f"Error sending prompt: {e}")
+                break
+        
+        if retry_count >= max_retries:
+            logging.error("Failed to confirm prompt delivery after retries")
+            self.app.notify("Warning: Could not confirm prompt was received", severity="warning")
             
     async def _delayed_refresh(self) -> None:
         """Refresh the display after a short delay."""
@@ -524,6 +575,54 @@ class TerminalPanel(BasePanel):
         """Get currently selected content."""
         return None
         
+    def is_claude_processing(self) -> bool:
+        """Check if Claude is currently processing a request."""
+        # If Claude hasn't started yet, it's considered "processing"
+        if not self._claude_ready:
+            return True
+        return self._is_claude_processing
+    
+    def _detect_claude_state(self, terminal_content: str) -> None:
+        """Detect Claude's state from terminal content."""
+        # Get the last few lines for analysis
+        lines = terminal_content.strip().split('\n')
+        last_lines = lines[-10:] if len(lines) >= 10 else lines
+        
+        # Check if we recently sent a prompt
+        if hasattr(self, '_last_prompt_sent') and self._last_prompt_sent:
+            # Look for the prompt in the terminal output to confirm it was received
+            for line in last_lines:
+                if self._last_prompt_sent[:50] in line:
+                    logging.info("Confirmed: Prompt was received by Claude")
+                    self._last_prompt_sent = None  # Clear it
+                    self._prompt_confirmed = True
+                    break
+        
+        # Check for Claude ready prompt
+        for line in last_lines:
+            line_text = line.strip()
+            
+            # Claude shows "Human: " when ready for input
+            if line_text.endswith("Human:") or line_text == "Human:":
+                self._is_claude_processing = False
+                self._claude_ready = True
+                self.status.update("Status: [green]Ready[/green]")
+                logging.info("Claude is ready - detected Human: prompt")
+                return
+            
+            # Check if Claude is responding
+            if line_text.startswith("Claude:") or line_text.startswith("Assistant:"):
+                self._is_claude_processing = True
+                self.status.update("Status: [yellow]Claude is responding...[/yellow]")
+                logging.info("Claude is processing - detected response marker")
+                return
+        
+        # Check for specific patterns that indicate processing
+        full_text = '\n'.join(last_lines).lower()
+        if any(phrase in full_text for phrase in ['thinking', 'analyzing', 'processing', 'loading']):
+            self._is_claude_processing = True
+            logging.debug("Claude appears to be processing based on output content")
+    
     def on_unmount(self) -> None:
         """Clean up when panel is unmounted."""
         # Stop the read thread first

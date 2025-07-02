@@ -170,11 +170,11 @@ class EmulatedTerminalPanel(BasePanel):
             self.status.update("Status: [green]Connected[/green]")
             logging.info(f"Claude CLI started successfully with terminal emulation")
             
-            # After a short delay, assume Claude is ready if we haven't detected the prompt
+            # After a delay, assume Claude is ready if we haven't detected the prompt
             async def check_ready():
-                await asyncio.sleep(3.0)
+                await asyncio.sleep(5.0)  # Give Claude more time to show initial prompt
                 if not self._claude_started:
-                    logging.info("Claude startup timeout - assuming ready")
+                    logging.info("Claude startup timeout - assuming ready after 5 seconds")
                     self._claude_started = True
                     self._is_processing = False
                     self.status.update("Status: [green]Ready[/green]")
@@ -435,12 +435,18 @@ class EmulatedTerminalPanel(BasePanel):
         try:
             # Clear any existing input line with Ctrl+U
             self.claude_process.send('\x15')
+            logging.debug("Sent Ctrl+U to clear input line")
             
             # Send the prompt text
             self.claude_process.send(prompt)
+            logging.debug(f"Sent prompt text: {len(prompt)} characters")
             
-            # Auto-submit with Enter (no delay needed)
+            # Small delay to ensure text is fully processed before Enter
+            await asyncio.sleep(0.1)
+            
+            # Auto-submit with Enter
             self.claude_process.send('\r')
+            logging.debug("Sent Enter to submit prompt")
             
             # Update status immediately
             self.status.update("Status: [green]Active[/green]")
