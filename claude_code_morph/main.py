@@ -18,29 +18,31 @@ from textual.widgets import Header, Footer, Static
 from textual.binding import Binding
 from rich.console import Console
 from rich.prompt import Prompt
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+# Hot-reloading disabled - watchdog imports removed
+# from watchdog.observers import Observer
+# from watchdog.events import FileSystemEventHandler
 from .session_manager import SessionManager
 
 console = Console()
 
-class PanelReloader(FileSystemEventHandler):
-    """Handles hot-reloading of panel modules."""
-    
-    def __init__(self, app: 'ClaudeCodeMorph'):
-        self.app = app
-        self.panels_dir = Path(__file__).parent / "panels"
-        
-    def on_modified(self, event):
-        if event.is_directory:
-            return
-            
-        path = Path(event.src_path)
-        if path.suffix == '.py' and path.parent == self.panels_dir:
-            module_name = path.stem
-            console.print(f"[yellow]Hot-reloading panel: {module_name}[/yellow]")
-            logging.info(f"Hot-reload triggered for: {module_name}")
-            self.app.call_from_thread(self.app.reload_panel, module_name)
+# Hot-reloading disabled - use Ctrl+Shift+R for manual reload
+# class PanelReloader(FileSystemEventHandler):
+#     """Handles hot-reloading of panel modules."""
+#     
+#     def __init__(self, app: 'ClaudeCodeMorph'):
+#         self.app = app
+#         self.panels_dir = Path(__file__).parent / "panels"
+#         
+#     def on_modified(self, event):
+#         if event.is_directory:
+#             return
+#             
+#         path = Path(event.src_path)
+#         if path.suffix == '.py' and path.parent == self.panels_dir:
+#             module_name = path.stem
+#             console.print(f"[yellow]Hot-reloading panel: {module_name}[/yellow]")
+#             logging.info(f"Hot-reload triggered for: {module_name}")
+#             self.app.call_from_thread(self.app.reload_panel, module_name)
 
 class ClaudeCodeMorph(App):
     """Main application for Claude Code Morph."""
@@ -97,7 +99,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+s", "save_workspace", "Save Workspace"),
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+r", "reload_all", "Reload All Panels"),
+        Binding("ctrl+shift+r", "reload_all", "Reload All"),
         Binding("ctrl+t", "focus_terminal", "Focus Terminal"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
     ]
@@ -116,9 +118,9 @@ class ClaudeCodeMorph(App):
         self.panels_dir.mkdir(exist_ok=True)
         self.workspaces_dir.mkdir(exist_ok=True)
         
-        # Set up hot-reloading
-        self.observer = Observer()
-        self.panel_reloader = PanelReloader(self)
+        # Hot-reloading disabled - use Ctrl+Shift+R for manual reload
+        # self.observer = Observer()
+        # self.panel_reloader = PanelReloader(self)
         
         # Initialize session manager
         self.session_manager = SessionManager()
@@ -144,13 +146,13 @@ class ClaudeCodeMorph(App):
         
     def on_mount(self) -> None:
         """Called when the app starts."""
-        # Start file watcher for hot-reloading
-        try:
-            self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
-            self.observer.start()
-        except Exception as e:
-            logging.warning(f"Could not start file watcher for hot-reloading: {e}")
-            # Continue without hot-reloading
+        # Hot-reloading disabled - use Ctrl+Shift+R for manual reload
+        # try:
+        #     self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
+        #     self.observer.start()
+        # except Exception as e:
+        #     logging.warning(f"Could not start file watcher for hot-reloading: {e}")
+        #     # Continue without hot-reloading
         
         # Check for existing session
         session_info = self.session_manager.get_session_info()
@@ -468,11 +470,22 @@ class ClaudeCodeMorph(App):
         self.call_from_thread(self.load_workspace_file, selected.name)
         
     def action_reload_all(self) -> None:
-        """Reload all panels."""
+        """Reload all panels manually."""
         panel_types = set(panel.__class__.__name__ for panel in self.panels.values())
         
+        self.notify("Reloading all panels...", severity="information")
+        logging.info("Manual reload triggered - reloading all panels")
+        
+        reload_count = 0
         for panel_type in panel_types:
-            self.call_from_thread(self.reload_panel, panel_type)
+            try:
+                self.call_from_thread(self.reload_panel, panel_type)
+                reload_count += 1
+            except Exception as e:
+                logging.error(f"Failed to reload panel {panel_type}: {e}")
+                self.notify(f"Failed to reload {panel_type}", severity="error")
+        
+        self.notify(f"Reloaded {reload_count} panel types", severity="success")
     
     def action_focus_terminal(self) -> None:
         """Focus the terminal panel."""
@@ -621,12 +634,13 @@ class ClaudeCodeMorph(App):
         if self._auto_save_timer:
             self._auto_save_timer.stop()
             
-        try:
-            if hasattr(self, 'observer') and self.observer.is_alive():
-                self.observer.stop()
-                self.observer.join(timeout=1.0)
-        except Exception as e:
-            logging.warning(f"Error stopping file watcher: {e}")
+        # Hot-reloading disabled
+        # try:
+        #     if hasattr(self, 'observer') and self.observer.is_alive():
+        #         self.observer.stop()
+        #         self.observer.join(timeout=1.0)
+        # except Exception as e:
+        #     logging.warning(f"Error stopping file watcher: {e}")
 
 def main():
     """Entry point for Claude Code Morph."""
