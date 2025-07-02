@@ -425,9 +425,24 @@ class EmulatedTerminalPanel(BasePanel):
         
         # Add mode context if needed
         if mode.lower() == 'morph':
-            # Claude is already in the project root, just add context
-            prompt = f"Please work on the Claude Code Morph source code in the current directory. {prompt}"
-            logging.info(f"Morph mode: Working on Claude Code Morph source")
+            # Get the morph source directory
+            morph_dir = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute()
+            
+            # Create a more explicit morph mode prompt
+            morph_prompt = f"""[MORPH MODE ACTIVE]
+You are now editing the Claude Code Morph IDE itself.
+Source directory: {morph_dir}
+Key files:
+- Main app: {morph_dir}/main.py
+- Panels: {morph_dir}/panels/
+- Current panel: {morph_dir}/panels/EmulatedTerminalPanel.py
+
+User request: {prompt}
+
+Please make the requested changes to the Claude Code Morph source code."""
+            
+            prompt = morph_prompt
+            logging.info(f"Morph mode: Working on Claude Code Morph source at {morph_dir}")
             
         self.status.update("Status: [yellow]Processing...[/yellow]")
         self._is_processing = True  # Mark as processing
