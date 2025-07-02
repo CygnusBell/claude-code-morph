@@ -240,12 +240,12 @@ class BasePanel(Static):
     
     BINDINGS = [
         # Using Cmd+C for copy to match macOS convention and avoid terminal interrupt
-        Binding("cmd+c", "copy_selected", "Copy", priority=True, show=True),
-        Binding("cmd+shift+c", "copy_all", "Copy All", priority=True, show=True),
+        Binding("cmd+c", "copy_selected", "Copy", priority=True, show=False),
+        Binding("cmd+shift+c", "copy_all", "Copy All", priority=True, show=False),
         # Also support Ctrl+Shift+C for non-Mac users
         Binding("ctrl+shift+c", "copy_selected", "Copy (Linux/Win)", priority=True, show=False),
         # Add lock toggle shortcut
-        Binding("ctrl+l", "toggle_lock", "Lock/Unlock", priority=True, show=True),
+        Binding("ctrl+l", "toggle_lock", "Lock/Unlock", priority=True, show=False),
     ]
     
     def __init__(self, **kwargs):
