@@ -398,6 +398,19 @@ class RobustTerminalPanel(BasePanel):
         if not self.claude_process or not self.claude_process.isalive():
             return
             
+        # Check if this is an app-level binding we should let through
+        app_bindings = {
+            "ctrl+s",       # Save Workspace
+            "ctrl+l",       # Load Workspace  
+            "ctrl+q",       # Quit
+            "ctrl+shift+f", # Safe Mode
+            "f5",           # Reload All
+        }
+        
+        if event.key in app_bindings:
+            # Let the event bubble up to the app
+            return
+            
         # Get the key character or name
         key = event.key
         
