@@ -361,9 +361,9 @@ class PromptPanel(BasePanel):
                 )
                 yield self.morph_mode_btn
                 
-                # Cost Saver toggle button with indicator
+                # Token Saver toggle button with indicator
                 self.cost_saver_btn = Button(
-                    "○ Cost Saver",
+                    "○ Token Saver",
                     id="optimize-btn"
                 )
                 yield self.cost_saver_btn
@@ -496,13 +496,13 @@ class PromptPanel(BasePanel):
         
         # Update button appearance
         if self.cost_saver_enabled:
-            self.cost_saver_btn.label = "● Cost Saver"  # Filled circle
+            self.cost_saver_btn.label = "● Token Saver"  # Filled circle
             self.cost_saver_btn.add_class("active")
-            self.app.notify("Cost Saver: ON - AI refinement enabled", severity="information")
+            self.app.notify("Token Saver: ON - AI refinement enabled", severity="information")
         else:
-            self.cost_saver_btn.label = "○ Cost Saver"  # Empty circle
+            self.cost_saver_btn.label = "○ Token Saver"  # Empty circle
             self.cost_saver_btn.remove_class("active")
-            self.app.notify("Cost Saver: OFF - AI refinement disabled", severity="information")
+            self.app.notify("Token Saver: OFF - AI refinement disabled", severity="information")
     
     def toggle_morph_mode(self) -> None:
         """Toggle between develop and morph modes."""
@@ -602,7 +602,7 @@ class PromptPanel(BasePanel):
             self.app.notify("Terminal panel not found", severity="error")
             
     def optimize_and_submit_prompt(self, prompt: str) -> None:
-        """Optimize and submit the prompt when Cost Saver is enabled."""
+        """Optimize and submit the prompt when Token Saver is enabled."""
         # Run optimization in background
         task = asyncio.create_task(self._optimize_prompt_async(prompt))
         task.add_done_callback(self._handle_task_error)
@@ -869,13 +869,14 @@ Output only the enhanced prompt, nothing else."""
                     prompt = await self._call_optimizer(prompt)
                 
                 # Send to terminal
+                logging.info(f"Sending prompt to terminal: mode={mode}, has_on_submit={bool(self.on_submit)}")
                 if self.on_submit:
                     await self._async_submit(prompt, mode)
                 else:
                     await self._send_to_terminal(prompt, mode)
                 
-                # Wait a moment for the prompt to be sent
-                await asyncio.sleep(0.5)
+                # Wait longer to ensure the prompt is fully sent and processed
+                await asyncio.sleep(2.0)
                 
                 # Remove from queue
                 self.prompt_queue.pop(0)
@@ -912,8 +913,8 @@ Output only the enhanced prompt, nothing else."""
                 await asyncio.sleep(0.5)
                 waited += 0.5
             
-            # Extra wait to ensure prompt is visible
-            await asyncio.sleep(0.5)
+            # Extra wait to ensure prompt is visible and Claude is ready
+            await asyncio.sleep(1.5)
         else:
             # Fallback: wait a fixed time
             await asyncio.sleep(2.0)
@@ -1099,10 +1100,10 @@ Output only the enhanced prompt, nothing else."""
             self.cost_saver_enabled = state['cost_saver_enabled']
             if hasattr(self, 'cost_saver_btn'):
                 if self.cost_saver_enabled:
-                    self.cost_saver_btn.label = "● Cost Saver"
+                    self.cost_saver_btn.label = "● Token Saver"
                     self.cost_saver_btn.add_class("active")
                 else:
-                    self.cost_saver_btn.label = "○ Cost Saver"
+                    self.cost_saver_btn.label = "○ Token Saver"
                     self.cost_saver_btn.remove_class("active")
                     
         # Restore prompt history
