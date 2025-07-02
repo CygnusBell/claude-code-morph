@@ -372,19 +372,20 @@ class PromptPanel(BasePanel):
         # The widgets created in compose_content already have IDs set
         
         # Set additional identifiers for widgets that might be dynamically created
-        if hasattr(self, 'prompt_input'):
+        # Only set ID if it's not already set
+        if hasattr(self, 'prompt_input') and not self.prompt_input.id:
             self.prompt_input.id = "prompt-input"
             
-        if hasattr(self, 'morph_mode_btn'):
+        if hasattr(self, 'morph_mode_btn') and not self.morph_mode_btn.id:
             self.morph_mode_btn.id = "morph-mode-btn"
             
-        if hasattr(self, 'cost_saver_btn'):
+        if hasattr(self, 'cost_saver_btn') and not self.cost_saver_btn.id:
             self.cost_saver_btn.id = "optimize-btn"
             
-        if hasattr(self, 'clear_queue_btn'):
+        if hasattr(self, 'clear_queue_btn') and not self.clear_queue_btn.id:
             self.clear_queue_btn.id = "clear-queue-btn"
             
-        if hasattr(self, 'queue_container'):
+        if hasattr(self, 'queue_container') and not self.queue_container.id:
             self.queue_container.id = "queue-container"
         
         # Log the widget IDs for debugging
