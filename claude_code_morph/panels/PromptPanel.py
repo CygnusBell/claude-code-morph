@@ -5,7 +5,7 @@ import logging
 from typing import Optional, Callable, Dict, Any
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Center, Middle, Grid
-from textual.widgets import Static, TextArea, Button, Label
+from textual.widgets import Static, TextArea, Button, Label, Select
 from textual.reactive import reactive
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
@@ -101,26 +101,32 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel #submit-btn {
-        margin-left: 2;
+        background: $surface;
+        border: solid $primary;
+        margin-left: auto;
     }
     
     PromptPanel #morph-mode-btn {
         background: $panel;
         color: $text;
         border: solid $primary;
-        min-width: 12;
+        min-width: 13;
+    }
+    
+    PromptPanel #morph-mode-btn:hover {
+        background: $primary-lighten-1;
+        color: $text;
     }
     
     PromptPanel #morph-mode-btn.active {
-        background: darkgreen;
+        background: rgb(0,100,0);
         color: white;
-        border: solid green;
+        border: solid rgb(0,150,0);
     }
     
-    PromptPanel .mode-indicator {
-        width: 1;
-        padding: 0;
-        margin-right: 0.5;
+    PromptPanel #morph-mode-btn.active:hover {
+        background: rgb(0,120,0);
+        color: white;
     }
     
     # Clickable text buttons
@@ -152,6 +158,27 @@ class PromptPanel(BasePanel):
         text-align: center;
     }
     
+    PromptPanel Button:focus {
+        text-style: none;
+        color: $text;
+    }
+    
+    PromptPanel Button:hover {
+        color: $text;
+    }
+    
+    PromptPanel Button:active {
+        color: $text;
+    }
+    
+    PromptPanel Button.-active {
+        color: $text;
+    }
+    
+    PromptPanel Button:pressed {
+        color: $text;
+    }
+    
     PromptPanel Button#clear-btn, PromptPanel .clear-button {
         background: red !important;
         color: white !important;
@@ -160,10 +187,6 @@ class PromptPanel(BasePanel):
         text-align: center;
     }
     
-    PromptPanel #submit-btn {
-        background: green;
-        color: black;
-    }
     
     /* Confirmation dialog styles */
     ConfirmDialog {
@@ -225,7 +248,8 @@ class PromptPanel(BasePanel):
             'selected_mode': 'develop',
             'prompt_text': '',
             'prompt_history': [],
-            'history_index': -1
+            'history_index': -1,
+            'cost_saver_enabled': False
         }
         
     def compose_content(self) -> ComposeResult:
@@ -233,6 +257,8 @@ class PromptPanel(BasePanel):
         # Initialize values if not already set
         if not hasattr(self, 'selected_mode'):
             self.selected_mode = "develop"
+        if not hasattr(self, 'cost_saver_enabled'):
+            self.cost_saver_enabled = False
         
         # Main container to fill remaining space
         with Vertical(classes="prompt-content"):
@@ -248,14 +274,19 @@ class PromptPanel(BasePanel):
                 # Morph Mode toggle button with indicator
                 self.morph_mode_btn = Button(
                     "○ Morph Mode",
-                    id="morph-mode-btn",
-                    tooltip="Edit the Morph IDE instead of current project"
+                    id="morph-mode-btn"
                 )
                 yield self.morph_mode_btn
                 
+                # Cost Saver toggle button with indicator
+                self.cost_saver_btn = Button(
+                    "○ Cost Saver",
+                    id="optimize-btn"
+                )
+                yield self.cost_saver_btn
+                
                 # Action buttons
-                yield Button("Submit", variant="primary", id="submit-btn")
-                yield Button("Refine with AI", variant="default", id="optimize-btn")
+                yield Button("Submit", id="submit-btn")
                 yield Button("Clear", id="clear-btn")
     
             
@@ -266,29 +297,50 @@ class PromptPanel(BasePanel):
         if button_id == "submit-btn":
             self.submit_prompt()
         elif button_id == "optimize-btn":
-            self.optimize_prompt()
+            self.toggle_cost_saver()
         elif button_id == "clear-btn":
             self.clear_prompt()
+        elif button_id == "morph-mode-btn":
+            self.toggle_morph_mode()
     
-    def on_select_changed(self, event: Select.Changed) -> None:
-        """Handle dropdown selection changes."""
-        # Get the actual value from the selection
-        if event.value == Select.BLANK:
-            return  # No selection
-            
-        if event.select.id == "mode-select" and event.value is not None:
-            self.selected_mode = event.value
-            mode_desc = "IDE development" if self.selected_mode == "morph" else "Project development"
-            self.app.notify(f"Mode: {mode_desc}", severity="information")
+    def toggle_cost_saver(self) -> None:
+        """Toggle cost saver mode."""
+        # Toggle the state
+        self.cost_saver_enabled = not self.cost_saver_enabled
+        
+        # Update button appearance
+        if self.cost_saver_enabled:
+            self.cost_saver_btn.label = "● Cost Saver"  # Filled circle
+            self.cost_saver_btn.add_class("active")
+            self.app.notify("Cost Saver: ON - AI refinement enabled", severity="information")
+        else:
+            self.cost_saver_btn.label = "○ Cost Saver"  # Empty circle
+            self.cost_saver_btn.remove_class("active")
+            self.app.notify("Cost Saver: OFF - AI refinement disabled", severity="information")
+    
+    def toggle_morph_mode(self) -> None:
+        """Toggle between develop and morph modes."""
+        # Toggle the mode
+        self.selected_mode = "develop" if self.selected_mode == "morph" else "morph"
+        
+        # Update button appearance
+        if self.selected_mode == "morph":
+            self.morph_mode_btn.label = "● Morph Mode"  # Filled circle
+            self.morph_mode_btn.add_class("active")
+            self.app.notify("Morph Mode: ON - Editing the IDE", severity="information")
+        else:
+            self.morph_mode_btn.label = "○ Morph Mode"  # Empty circle
+            self.morph_mode_btn.remove_class("active")
+            self.app.notify("Morph Mode: OFF - Editing current project", severity="information")
     
     
             
     def on_key(self, event) -> None:
         """Handle keyboard shortcuts."""
-        if event.key == "ctrl+enter":
+        if event.key == "ctrl+enter" or event.key == "shift+enter":
             self.submit_prompt()
         elif event.key == "ctrl+o":
-            self.optimize_prompt()
+            self.toggle_cost_saver()
         elif event.key == "ctrl+l":
             self.clear_prompt()
         elif event.key == "ctrl+up":
@@ -307,6 +359,12 @@ class PromptPanel(BasePanel):
         # Add to history
         self.prompt_history.append(prompt)
         self.history_index = len(self.prompt_history)
+        
+        # Check if cost saver is enabled
+        if self.cost_saver_enabled:
+            # Optimize the prompt before submitting
+            self.optimize_and_submit_prompt(prompt)
+            return
         
         # Use the prompt directly
         final_prompt = prompt
@@ -342,6 +400,12 @@ class PromptPanel(BasePanel):
         else:
             self.app.notify("Terminal panel not found", severity="error")
             
+    def optimize_and_submit_prompt(self, prompt: str) -> None:
+        """Optimize and submit the prompt when Cost Saver is enabled."""
+        # Run optimization in background
+        task = asyncio.create_task(self._optimize_prompt_async(prompt))
+        task.add_done_callback(self._handle_task_error)
+    
     def optimize_prompt(self) -> None:
         """Optimize the current prompt using AI."""
         prompt = self.prompt_input.text.strip()
@@ -567,16 +631,14 @@ Output only the enhanced prompt, nothing else."""
         # Restore selections
         if 'selected_mode' in state:
             self.selected_mode = state['selected_mode']
-            # Update the select widget if it exists
-            if hasattr(self, 'mode_select'):
-                try:
-                    # Find the option that matches our mode
-                    for option in self.mode_select._options:
-                        if option.value == self.selected_mode:
-                            self.mode_select.value = option.value
-                            break
-                except:
-                    pass
+            # Update the button appearance if it exists
+            if hasattr(self, 'morph_mode_btn'):
+                if self.selected_mode == 'morph':
+                    self.morph_mode_btn.label = "● Morph Mode"
+                    self.morph_mode_btn.add_class("active")
+                else:
+                    self.morph_mode_btn.label = "○ Morph Mode"
+                    self.morph_mode_btn.remove_class("active")
                     
         # Restore prompt history
         if 'prompt_history' in state:

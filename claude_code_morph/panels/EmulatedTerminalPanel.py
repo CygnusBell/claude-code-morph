@@ -216,7 +216,12 @@ class EmulatedTerminalPanel(BasePanel):
                         else:
                             text_data = str(data)
                         if len(text_data) > 10:
-                            logging.debug(f"Claude output chunk: {repr(text_data[:100])}")
+                            # Reduce log spam - only log every 10th chunk
+                            if not hasattr(self, '_chunk_count'):
+                                self._chunk_count = 0
+                            self._chunk_count += 1
+                            if self._chunk_count % 10 == 0:
+                                logging.debug(f"Claude output chunk #{self._chunk_count}: {repr(text_data[:50])}")
                     elif msg_type == 'eof':
                         self.screen_display.write("\n[yellow]Claude CLI session ended.[/yellow]")
                         self.status.update("Status: [yellow]Disconnected[/yellow]")
@@ -268,10 +273,10 @@ class EmulatedTerminalPanel(BasePanel):
                 if line:  # Only write non-empty lines
                     self.screen_display.write(line)
                 
-            # Debug: Log if we see file operation messages
-            content = '\n'.join(lines)
-            if any(phrase in content.lower() for phrase in ['created', 'updated', 'wrote', 'edit', 'file']):
-                logging.info(f"File operation detected in output: {content[-200:]}")
+            # Debug: Log if we see file operation messages (disabled to prevent log flooding)
+            # content = '\n'.join(lines)
+            # if any(phrase in content.lower() for phrase in ['created', 'updated', 'wrote', 'edit', 'file']):
+            #     logging.debug(f"File operation detected in output: {content[-200:]}")
         except Exception as e:
             logging.error(f"Error updating display: {e}")
             

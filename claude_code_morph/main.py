@@ -99,6 +99,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+r", "reload_all", "Reload All Panels"),
         Binding("ctrl+t", "focus_terminal", "Focus Terminal"),
+        Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
     ]
     
     def __init__(self):
@@ -481,6 +482,31 @@ class ClaudeCodeMorph(App):
             self.notify("Terminal focused - type to interact with Claude", severity="information")
         else:
             self.notify("No terminal panel found", severity="warning")
+    
+    def action_launch_safe_mode(self) -> None:
+        """Launch safe mode to fix errors."""
+        import subprocess
+        
+        # Save session before exiting
+        self._save_session()
+        
+        # Notify user
+        self.notify("Launching Safe Mode to fix errors...", severity="warning")
+        
+        # Create a flag file to indicate safe mode request
+        safe_mode_flag = self.morph_source.parent / ".safe_mode_requested"
+        safe_mode_flag.touch()
+        
+        # Force exit the app
+        logging.info("User requested safe mode fix via Ctrl+Shift+F")
+        
+        # Try graceful exit first
+        try:
+            self.exit(return_code=99)  # Special code for safe mode
+        except:
+            # If graceful exit fails, force exit
+            import os
+            os._exit(99)
     
     def _connect_panels(self) -> None:
         """Connect the prompt panel to the terminal panel."""
