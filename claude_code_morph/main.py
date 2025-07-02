@@ -100,7 +100,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
-        Binding("ctrl+r", "reload_all", "Reload All"),
+        Binding("ctrl+r", "reload_all", "Reload All", show=True),
     ]
     
     def __init__(self):
