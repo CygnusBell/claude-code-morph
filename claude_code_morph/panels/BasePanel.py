@@ -5,11 +5,13 @@ import logging
 from typing import Optional, Dict, Any
 from textual.widgets import Static, Button
 from textual.binding import Binding
-from textual.events import Click, MouseDown
+from textual.events import Click, MouseDown, Leave, Enter
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Container
+from textual.coordinate import Coordinate
 from rich.console import Group
 from rich.text import Text
+from ..widgets.widget_label import WidgetLabel
 
 # Try to import pyperclip, but fallback if not available
 CLIPBOARD_AVAILABLE = False
@@ -100,7 +102,7 @@ class BasePanel(Static):
     
     .context-menu {
         width: 20;
-        height: 5;
+        height: 8;
         background: red;
         border: solid white;
         display: none;
@@ -125,6 +127,113 @@ class BasePanel(Static):
         color: $text;
     }
     
+    /* Widget Label Styles */
+    .widget-label {
+        background: rgba(0, 0, 0, 0.85);
+        color: rgba(255, 255, 255, 0.95);
+        padding: 1 2;
+        
+        text-align: left;
+        text-style: none;
+        opacity: 0;
+        
+        layer: overlay;
+        
+        width: auto;
+        height: auto;
+        max-width: 60;
+        
+    }
+    
+    .widget-label.visible {
+        opacity: 1;
+    }
+    
+    .widget-label.fade-in {
+        opacity: 1;
+    }
+    
+    .widget-label.fade-out {
+        opacity: 0;
+    }
+    
+    /* Position labels at top-right of widgets */
+    .widget-label.top-right {
+        dock: top;
+        align: right top;
+        margin: 1 1 0 0;
+    }
+    
+    /* Position labels at top-left of widgets */
+    .widget-label.top-left {
+        dock: top;
+        align: left top;
+        margin: 1 0 0 1;
+    }
+    
+    /* Centered label style */
+    .widget-label.centered {
+        dock: top;
+        align: center top;
+        margin: 1 0 0 0;
+    }
+    
+    /* Alternative label styles */
+    .widget-label.minimal {
+        background: rgba(0, 0, 0, 0.5);
+        padding: 0 1;
+        
+        text-style: none;
+    }
+    
+    .widget-label.accent {
+        background: rgba(30, 144, 255, 0.8);
+        color: white;
+        text-style: bold;
+    }
+    
+    .widget-label.warning {
+        background: rgba(255, 165, 0, 0.8);
+        color: black;
+        text-style: bold;
+    }
+    
+    /* Widget type specific label styles */
+    .widget-label.button-label {
+        background: rgba(46, 204, 113, 0.8);  /* Green */
+        color: white;
+        text-style: bold;
+        
+    }
+    
+    .widget-label.input-label {
+        background: rgba(52, 152, 219, 0.8);  /* Blue */
+        color: white;
+        text-style: none;
+        
+    }
+    
+    .widget-label.panel-label {
+        background: rgba(155, 89, 182, 0.8);  /* Purple */
+        color: white;
+        text-style: italic;
+        
+    }
+    
+    .widget-label.text-label {
+        background: rgba(241, 196, 15, 0.8);  /* Yellow */
+        color: black;
+        text-style: none;
+        
+    }
+    
+    .widget-label.container-label {
+        background: rgba(189, 195, 199, 0.8);  /* Gray */
+        color: black;
+        text-style: italic;
+        
+    }
+    
     """
     
     # Ensure BasePanel CSS is always included
@@ -138,6 +247,8 @@ class BasePanel(Static):
         Binding("ctrl+shift+c", "copy_selected", "Copy (Linux/Win)", priority=True, show=False),
         # Add lock toggle shortcut
         Binding("ctrl+l", "toggle_lock", "Lock/Unlock", priority=True, show=True),
+        # Add widget label toggle shortcut
+        Binding("ctrl+shift+l", "toggle_widget_labels", "Toggle Labels", priority=True, show=True),
     ]
     
     def __init__(self, **kwargs):
@@ -148,6 +259,10 @@ class BasePanel(Static):
         self.selection_end: Optional[tuple] = None
         self.is_selecting = False
         self.is_locked = False
+        self.show_widget_labels = False
+        self.hovered_widget = None
+        self.hover_label = None
+        self.widget_label = None
         
     def compose(self) -> ComposeResult:
         """Create the base panel layout with panel name."""
@@ -163,6 +278,7 @@ class BasePanel(Static):
                 with Container(classes="context-menu") as self.context_menu:
                     lock_text = "🔓 Lock" if not self.is_locked else "🔒 Unlock"
                     yield Button(lock_text, classes="context-menu-item", id="lock-btn")
+                    yield Button("🏷️ Show Widget Labels", classes="context-menu-item", id="labels-btn")
         
         # Subclasses should override compose_content to add their content
         if hasattr(self, 'compose_content'):
@@ -282,10 +398,15 @@ class BasePanel(Static):
             
         
     def on_mouse_move(self, event) -> None:
-        """Handle mouse move for selection."""
+        """Handle mouse move for selection and widget hover detection."""
+        # Handle selection
         if self.is_selecting and self.selection_start:
             self.selection_end = (event.x, event.y)
             # Subclasses can override to implement visual selection
+            
+        # Handle widget hover detection
+        if self.show_widget_labels:
+            self._check_widget_hover(event.x, event.y)
             
     def on_mouse_up(self, event) -> None:
         """Handle mouse release to end selection."""
@@ -309,6 +430,10 @@ class BasePanel(Static):
             self.toggle_lock()
             self.hide_context_menu()
             event.stop()
+        elif event.button.id == "labels-btn":
+            self.toggle_widget_labels()
+            self.hide_context_menu()
+            event.stop()
             
     def on_click(self, event: Click) -> None:
         """Handle click events."""
@@ -318,6 +443,13 @@ class BasePanel(Static):
             if (not self.context_menu.region.contains(event.x, event.y) and 
                 not self.gear_button.region.contains(event.x, event.y)):
                 self.hide_context_menu()
+                
+    def on_leave(self, event: Leave) -> None:
+        """Handle mouse leave events - hide widget label when mouse moves away."""
+        if self.hover_label:
+            self.hover_label.remove()
+            self.hover_label = None
+            self.hovered_widget = None
                 
     def toggle_context_menu(self) -> None:
         """Toggle the visibility of the context menu."""
@@ -343,6 +475,19 @@ class BasePanel(Static):
     def action_toggle_lock(self) -> None:
         """Action to toggle lock via keyboard shortcut."""
         self.toggle_lock()
+        
+    def action_toggle_widget_labels(self) -> None:
+        """Action to toggle widget labels via keyboard shortcut."""
+        # Toggle widget labels on all panels
+        if hasattr(self, 'app') and self.app:
+            # Iterate through all panels and toggle their labels
+            for panel in self.app.panels.values():
+                if hasattr(panel, 'toggle_widget_labels'):
+                    panel.toggle_widget_labels()
+            
+            # Notify user
+            if hasattr(self.app, 'notify'):
+                self.app.notify("Toggled widget labels", severity="information")
             
     def toggle_lock(self, event=None) -> None:
         """Toggle the lock state of this panel."""
@@ -363,6 +508,189 @@ class BasePanel(Static):
             state = "locked" if self.is_locked else "unlocked"
             self.app.notify(f"Panel {state}", severity="information")
             
+    def toggle_widget_labels(self) -> None:
+        """Toggle the display of widget labels on hover."""
+        self.show_widget_labels = not self.show_widget_labels
+        logging.info(f"Panel {type(self).__name__} widget labels toggled: show_widget_labels={self.show_widget_labels}")
+        
+        # If disabling, remove any existing label
+        if not self.show_widget_labels and self.hover_label:
+            self.hover_label.remove()
+            self.hover_label = None
+            self.hovered_widget = None
+        
+        # Update label button text to reflect current state
+        try:
+            labels_btn = self.query_one("#labels-btn", Button)
+            if labels_btn:
+                if self.show_widget_labels:
+                    labels_btn.label = "🏷️ Hide Widget Labels"
+                else:
+                    labels_btn.label = "🏷️ Show Widget Labels"
+        except Exception:
+            pass  # query_one might fail if button doesn't exist
+                
+        # Notify user
+        if hasattr(self, 'app') and hasattr(self.app, 'notify'):
+            state = "enabled" if self.show_widget_labels else "disabled"
+            self.app.notify(f"Widget labels {state}", severity="information")
+            
+    def get_widget_info(self, widget=None) -> str:
+        """Get formatted information about a widget.
+        
+        Args:
+            widget: The widget to get info about. If None, uses self.
+            
+        Returns:
+            A formatted string containing the widget's path in the DOM tree and other info.
+        """
+        if widget is None:
+            widget = self
+            
+        # Build the DOM path by traversing up the widget hierarchy
+        path_parts = []
+        current = widget
+        
+        while current is not None:
+            # Build identifier for current widget
+            identifier = current.__class__.__name__
+            
+            # Add ID if present
+            if hasattr(current, 'id') and current.id:
+                identifier += f"#{current.id}"
+                
+            # Add CSS classes if present (limit to 2 for brevity)
+            if hasattr(current, 'classes') and current.classes:
+                classes = list(current.classes)[:2]
+                if classes:
+                    identifier += "." + ".".join(classes)
+                if len(current.classes) > 2:
+                    identifier += "..."
+                    
+            path_parts.append(identifier)
+            
+            # Move up to parent
+            if hasattr(current, 'parent'):
+                current = current.parent
+                # Stop at the app level to avoid too long paths
+                if hasattr(current, '__class__') and current.__class__.__name__ == 'ClaudeCodeMorph':
+                    break
+            else:
+                break
+                
+        # Reverse to show top-down path
+        path_parts.reverse()
+        
+        # Create the path string
+        dom_path = " > ".join(path_parts)
+        
+        # Also include additional details about the target widget
+        info_parts = [f"Path: {dom_path}"]
+        
+        # Add widget dimensions if available
+        if hasattr(widget, 'region'):
+            region = widget.region
+            info_parts.append(f"Size: {region.width}x{region.height}")
+            info_parts.append(f"Position: ({region.x}, {region.y})")
+        
+        # Format as a multi-line string for better readability
+        return "\n".join(info_parts)
+    
+            
+    def _check_widget_hover(self, x: int, y: int) -> None:
+        """Check if mouse is hovering over a widget and show label if enabled."""
+        if not self.show_widget_labels:
+            return
+            
+        # Find the widget at the mouse position
+        widget = None
+        for child in self.walk_children():
+            if hasattr(child, 'region') and child.region.contains(x, y):
+                # Skip container widgets unless they have specific IDs or classes
+                if child.__class__.__name__ in ['Container', 'Horizontal', 'Vertical'] and not child.id and not child.classes:
+                    continue
+                widget = child
+                break
+        
+        # If we're hovering over a different widget or no widget
+        if widget != self.hovered_widget:
+            # Remove previous label if it exists
+            if self.hover_label:
+                self.hover_label.remove()
+                self.hover_label = None
+                
+            self.hovered_widget = widget
+            
+            # Show label for the new widget (but not for the panel itself)
+            if widget and widget != self:
+                self._show_widget_label(widget, x, y)
+                
+    def _show_widget_label(self, widget, x: int, y: int) -> None:
+        """Show a label for the hovered widget."""
+        if not widget:
+            return
+            
+        # Get widget type and basic info
+        widget_type = widget.__class__.__name__
+        widget_id = getattr(widget, 'id', None)
+        widget_classes = list(widget.classes) if hasattr(widget, 'classes') else []
+        
+        # Build label parts
+        label_parts = [widget_type]
+        
+        # Add ID if present
+        if widget_id:
+            label_parts.append(f"#{widget_id}")
+            
+        # Add classes if present
+        if widget_classes:
+            class_str = '.'.join(widget_classes[:2])  # Limit to 2 classes
+            if len(widget_classes) > 2:
+                class_str += "..."
+            label_parts.append(f".{class_str}")
+            
+        # Add widget-specific info
+        extra_info = []
+        
+        # For buttons, show the label
+        if widget_type == "Button" and hasattr(widget, 'label'):
+            extra_info.append(f'"{widget.label}"')
+            
+        # For text areas, show character count
+        elif widget_type == "TextArea" and hasattr(widget, 'text'):
+            char_count = len(widget.text)
+            extra_info.append(f"{char_count} chars")
+            
+        # For labels/static widgets, show truncated content
+        elif widget_type in ["Label", "Static"] and hasattr(widget, 'renderable'):
+            content = str(widget.renderable)[:20]
+            if len(str(widget.renderable)) > 20:
+                content += "..."
+            extra_info.append(f'"{content}"')
+            
+        # Combine all parts
+        label_text = ' '.join(label_parts)
+        if extra_info:
+            label_text += f" ({', '.join(extra_info)})"
+            
+        # Create and show the widget label
+        self.hover_label = WidgetLabel(label_text, auto_hide_seconds=0)  # No auto-hide for hover labels
+        
+        # Mount to the app's screen
+        if hasattr(self, 'app') and self.app and hasattr(self.app, 'screen'):
+            self.app.screen.mount(self.hover_label)
+            
+            # Calculate position for the label
+            if hasattr(widget, 'region'):
+                label_x, label_y = self.hover_label.calculate_label_position(
+                    widget.region.x, widget.region.y,
+                    widget.region.width, widget.region.height
+                )
+                self.hover_label.styles.offset = (label_x, label_y)
+                
+            # Show the label
+            self.hover_label.show()
+                
     def _update_connected_splitters(self) -> None:
         """Update the lock state of splitters connected to this panel."""
         # Import here to avoid circular import
@@ -440,3 +768,77 @@ class BasePanel(Static):
                 # No need to update other panels' UI as we're using a gear menu now
         else:
             logging.warning(f"Could not find ResizableContainer for panel {self}")
+            
+    def show_widget_label(self, widget, text: str, position: Optional[Coordinate] = None) -> None:
+        """Show a widget label with the specified text.
+        
+        Args:
+            widget: The widget to show the label for
+            text: The text to display in the label
+            position: Optional position for the label. If not provided, will position near the widget
+        """
+        # Lazily import WidgetLabel to avoid circular imports
+        from ..widgets.widget_label import WidgetLabel
+        
+        # Remove any existing widget label
+        if self.widget_label:
+            try:
+                self.widget_label.remove()
+            except Exception:
+                pass
+            self.widget_label = None
+            
+        # Create and mount new widget label
+        self.widget_label = WidgetLabel(text)
+        
+        # Get the app's screen to mount the label at the overlay layer
+        if hasattr(self, 'app') and self.app and hasattr(self.app, 'screen'):
+            # Mount the label to the screen's overlay layer
+            self.app.screen.mount(self.widget_label, layer="overlay")
+            
+            # Position the label
+            if position:
+                # Use provided position
+                self.widget_label.styles.offset = (position.x, position.y)
+            else:
+                # Position near the widget
+                widget_region = widget.region
+                # Position above the widget by default
+                label_x = widget_region.x + (widget_region.width // 2)
+                label_y = widget_region.y - 2  # 2 lines above the widget
+                
+                # Adjust if too close to top
+                if label_y < 0:
+                    label_y = widget_region.y + widget_region.height + 1  # Below widget instead
+                    
+                self.widget_label.styles.offset = (label_x, label_y)
+                
+            # Make the label visible and start auto-hide timer
+            self.widget_label.show()
+            
+    def hide_widget_label(self) -> None:
+        """Hide and remove the current widget label."""
+        if self.widget_label:
+            try:
+                self.widget_label.remove()
+            except Exception:
+                pass
+            self.widget_label = None
+            
+    def on_enter(self, event: Enter) -> None:
+        """Handle mouse enter events on widgets.
+        
+        Override this method in subclasses to show custom labels for specific widgets.
+        """
+        # Example: Show label when hovering over the gear button
+        if hasattr(self, 'gear_button') and event.widget == self.gear_button:
+            self.show_widget_label(event.widget, "Panel Settings")
+            
+    def on_leave(self, event: Leave) -> None:
+        """Handle mouse leave events on widgets.
+        
+        Override this method in subclasses to hide labels when appropriate.
+        """
+        # Hide label when leaving any widget that might have a label
+        if hasattr(self, 'gear_button') and event.widget == self.gear_button:
+            self.hide_widget_label()

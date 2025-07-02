@@ -357,8 +357,8 @@ class PromptPanel(BasePanel):
                 yield self.cost_saver_btn
                 
                 # Action buttons
-                yield Button("Submit", id="submit-btn")
                 yield Button("Clear", id="clear-btn")
+                yield Button("Submit", id="submit-btn")
                 
                 # Clear Queue button (will be shown/hidden dynamically)
                 self.clear_queue_btn = Button("Clear Queue", id="clear-queue-btn", classes="clear-button")
@@ -366,11 +366,37 @@ class PromptPanel(BasePanel):
                 yield self.clear_queue_btn
             
             # Prompt queue container
-            self.queue_container = ScrollableContainer(classes="prompt-queue-container")
+            self.queue_container = ScrollableContainer(id="queue-container", classes="prompt-queue-container")
             yield self.queue_container
     
     def on_mount(self) -> None:
-        """Initialize the queue display when mounted."""
+        """Initialize the queue display when mounted and set IDs for all widgets."""
+        # Set IDs for all important widgets that don't already have them
+        # The widgets created in compose_content already have IDs set
+        
+        # Set additional identifiers for widgets that might be dynamically created
+        if hasattr(self, 'prompt_input'):
+            self.prompt_input.id = "prompt-input"
+            
+        if hasattr(self, 'morph_mode_btn'):
+            self.morph_mode_btn.id = "morph-mode-btn"
+            
+        if hasattr(self, 'cost_saver_btn'):
+            self.cost_saver_btn.id = "optimize-btn"
+            
+        if hasattr(self, 'clear_queue_btn'):
+            self.clear_queue_btn.id = "clear-queue-btn"
+            
+        if hasattr(self, 'queue_container'):
+            self.queue_container.id = "queue-container"
+        
+        # Log the widget IDs for debugging
+        logging.debug(f"PromptPanel widgets initialized with IDs:")
+        logging.debug(f"  - prompt_input: {getattr(self.prompt_input, 'id', 'No ID')}")
+        logging.debug(f"  - morph_mode_btn: {getattr(self.morph_mode_btn, 'id', 'No ID')}")
+        logging.debug(f"  - cost_saver_btn: {getattr(self.cost_saver_btn, 'id', 'No ID')}")
+        logging.debug(f"  - queue_container: {getattr(self.queue_container, 'id', 'No ID')}")
+        
         # Check if we have a restored queue from previous session
         if self.prompt_queue:
             # Show notification about restored queue
@@ -433,6 +459,22 @@ class PromptPanel(BasePanel):
             self.morph_mode_btn.label = "● Morph Mode"  # Filled circle
             self.morph_mode_btn.add_class("active")
             self.app.notify("Morph Mode: ON - Editing the IDE", severity="information")
+            
+            # Automatically show widget labels when entering morph mode
+            # This helps users understand the IDE structure they're editing
+            if hasattr(self.app, 'panels'):
+                labels_enabled = False
+                for panel in self.app.panels.values():
+                    if hasattr(panel, 'show_widget_labels') and not panel.show_widget_labels:
+                        # Enable widget labels for this panel
+                        panel.show_widget_labels = True
+                        labels_enabled = True
+                        # Note: We don't call toggle_widget_labels() here as it would toggle back to False
+                        # The show_widget_labels flag is sufficient for the panel to show labels
+                
+                # If we enabled any labels, notify about it
+                if labels_enabled:
+                    self.app.notify("Widget labels enabled to help with IDE editing", severity="information")
         else:
             self.morph_mode_btn.label = "○ Morph Mode"  # Empty circle
             self.morph_mode_btn.remove_class("active")
