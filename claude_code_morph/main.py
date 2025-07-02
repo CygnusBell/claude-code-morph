@@ -120,8 +120,8 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
-        Binding("f5", "reload_all", "Reload All", show=True, priority=True),
         Binding("ctrl+comma", "reload_all", "Reload All", show=True, priority=True),
+        Binding("ctrl+t", "test_binding", "Test", show=True, priority=True),
     ]
     
     def __init__(self):
@@ -166,9 +166,14 @@ class ClaudeCodeMorph(App):
         
     def on_key(self, event) -> None:
         """Debug key events."""
-        logging.debug(f"App received key: {event.key}")
-        if event.key == "f5":
-            logging.info("F5 key detected in app!")
+        # Log to both file and console for debugging
+        msg = f"App received key: {event.key}"
+        logging.info(msg)
+        print(f"\n[KEY DEBUG] {msg}", flush=True)
+        
+        if event.key == "ctrl+comma":
+            print("\n[KEY DEBUG] Ctrl+Comma detected! Calling reload...", flush=True)
+            logging.info("Ctrl+Comma detected in app!")
             # Don't stop the event, let it continue to action
         
     def on_mount(self) -> None:
@@ -521,6 +526,11 @@ class ClaudeCodeMorph(App):
             # If graceful exit fails, force exit
             import os
             os._exit(99)
+    
+    def action_test_binding(self) -> None:
+        """Test if bindings are working."""
+        self.notify("Test binding works! Keyboard shortcuts are functioning.", severity="success")
+        logging.info("Test binding executed successfully")
     
     def action_reload_all(self) -> None:
         """Reload all panels by reloading their modules."""
