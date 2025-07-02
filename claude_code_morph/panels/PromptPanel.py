@@ -116,6 +116,11 @@ class PromptPanel(BasePanel):
         text-style: none;
     }
     
+    PromptPanel #morph-mode-btn:focus {
+        text-style: none;
+        outline: none;
+    }
+    
     PromptPanel #morph-mode-btn.active {
         background: rgb(0,100,0);
         color: white;
@@ -127,6 +132,13 @@ class PromptPanel(BasePanel):
         background: rgb(0,120,0);
         color: white;
         text-style: none;
+    }
+    
+    PromptPanel #morph-mode-btn.active:focus {
+        background: rgb(0,100,0);
+        color: white;
+        text-style: none;
+        outline: none;
     }
     
     # Clickable text buttons
@@ -159,6 +171,7 @@ class PromptPanel(BasePanel):
     
     PromptPanel Button:focus {
         text-style: none;
+        outline: none;
     }
     
     PromptPanel Button:hover {
@@ -166,6 +179,14 @@ class PromptPanel(BasePanel):
     }
     
     PromptPanel Button:active {
+        text-style: none;
+    }
+    
+    PromptPanel Button.-active {
+        text-style: none;
+    }
+    
+    PromptPanel Button:pressed {
         text-style: none;
     }
     
@@ -342,6 +363,8 @@ class PromptPanel(BasePanel):
             self.selected_mode = "develop"
         if not hasattr(self, 'cost_saver_enabled'):
             self.cost_saver_enabled = False
+        if not hasattr(self, 'context_saver_enabled'):
+            self.context_saver_enabled = False
         
         # Main container to fill remaining space
         with Vertical(classes="prompt-content"):
@@ -367,6 +390,13 @@ class PromptPanel(BasePanel):
                     id="optimize-btn"
                 )
                 yield self.cost_saver_btn
+                
+                # Context Saver toggle button with indicator
+                self.context_saver_btn = Button(
+                    "○ Context Saver",
+                    id="context-saver-btn"
+                )
+                yield self.context_saver_btn
                 
                 # Action buttons
                 yield Button("Clear", id="clear-btn")
@@ -482,6 +512,8 @@ class PromptPanel(BasePanel):
             self.submit_prompt()
         elif button_id == "optimize-btn":
             self.toggle_cost_saver()
+        elif button_id == "context-saver-btn":
+            self.toggle_context_saver()
         elif button_id == "clear-btn":
             self.clear_prompt()
         elif button_id == "morph-mode-btn":
@@ -503,6 +535,21 @@ class PromptPanel(BasePanel):
             self.cost_saver_btn.label = "○ Token Saver"  # Empty circle
             self.cost_saver_btn.remove_class("active")
             self.app.notify("Token Saver: OFF - AI refinement disabled", severity="information")
+    
+    def toggle_context_saver(self) -> None:
+        """Toggle context saver mode."""
+        # Toggle the state
+        self.context_saver_enabled = not self.context_saver_enabled
+        
+        # Update button appearance
+        if self.context_saver_enabled:
+            self.context_saver_btn.label = "● Context Saver"  # Filled circle
+            self.context_saver_btn.add_class("active")
+            self.app.notify("Context Saver: ON", severity="information")
+        else:
+            self.context_saver_btn.label = "○ Context Saver"  # Empty circle
+            self.context_saver_btn.remove_class("active")
+            self.app.notify("Context Saver: OFF", severity="information")
     
     def toggle_morph_mode(self) -> None:
         """Toggle between develop and morph modes."""

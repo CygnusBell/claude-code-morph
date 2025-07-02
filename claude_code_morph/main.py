@@ -52,6 +52,26 @@ class ClaudeCodeMorph(App):
         layout: vertical;
     }
     
+    Button {
+        text-style: none !important;
+        outline: none !important;
+    }
+    
+    Button:focus {
+        text-style: none !important;
+        outline: none !important;
+    }
+    
+    Button.-active {
+        text-style: none !important;
+        outline: none !important;
+    }
+    
+    Button:pressed {
+        text-style: none !important;
+        outline: none !important;
+    }
+    
     #main-container {
         height: 99%;
         width: 100%;
