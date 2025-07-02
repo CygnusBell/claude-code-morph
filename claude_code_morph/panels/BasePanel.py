@@ -264,9 +264,14 @@ class BasePanel(Static):
         """Check if Morph Mode is currently active."""
         if hasattr(self, 'app') and self.app:
             # Look for PromptPanel and check if morph mode is active
-            for widget in self.app.query("PromptPanel"):
-                if hasattr(widget, 'morph_mode') and widget.morph_mode:
-                    return True
+            try:
+                for widget in self.app.query("PromptPanel"):
+                    if hasattr(widget, 'morph_mode') and widget.morph_mode:
+                        logging.debug(f"Morph mode is active: {widget.morph_mode}")
+                        return True
+                logging.debug("Morph mode is not active")
+            except Exception as e:
+                logging.debug(f"Error checking morph mode: {e}")
         return False
         
     def compose(self) -> ComposeResult:
@@ -639,9 +644,9 @@ class BasePanel(Static):
             label_text += f" ({', '.join(extra_info)})"
             
         # For now, use notifications to verify the hover detection is working
-        logging.debug(f"Hovering over widget: {label_text}")
+        logging.info(f"Showing widget label: {label_text}")
         if hasattr(self, 'app') and hasattr(self.app, 'notify'):
-            self.app.notify(label_text, severity="information", timeout=2)
+            self.app.notify(label_text, severity="information", timeout=3)
             
         # TODO: Implement actual floating label widget
         # self.hover_label = WidgetLabel(label_text, auto_hide_seconds=0)
@@ -788,7 +793,11 @@ class BasePanel(Static):
     def on_enter(self, event: Enter) -> None:
         """Handle mouse enter events on widgets."""
         # Show widget label if in Morph Mode
-        if self.is_morph_mode_active() and event.widget != self:
+        logging.debug(f"Enter event on widget: {event.widget.__class__.__name__}")
+        morph_active = self.is_morph_mode_active()
+        logging.debug(f"Morph mode active: {morph_active}")
+        if morph_active and event.widget != self:
+            logging.debug(f"Showing widget label for {event.widget.__class__.__name__}")
             self._show_widget_label(event.widget, 0, 0)
             
     def on_leave(self, event: Leave) -> None:
