@@ -118,7 +118,6 @@ class PromptPanel(BasePanel):
     
     PromptPanel #morph-mode-btn:focus {
         text-style: none;
-        outline: none;
     }
     
     PromptPanel #morph-mode-btn.active {
@@ -138,7 +137,6 @@ class PromptPanel(BasePanel):
         background: rgb(0,100,0);
         color: white;
         text-style: none;
-        outline: none;
     }
     
     # Clickable text buttons
@@ -171,22 +169,13 @@ class PromptPanel(BasePanel):
     
     PromptPanel Button:focus {
         text-style: none;
-        outline: none;
     }
     
     PromptPanel Button:hover {
         text-style: none;
     }
     
-    PromptPanel Button:active {
-        text-style: none;
-    }
-    
     PromptPanel Button.-active {
-        text-style: none;
-    }
-    
-    PromptPanel Button:pressed {
         text-style: none;
     }
     
@@ -200,9 +189,7 @@ class PromptPanel(BasePanel):
     
     PromptPanel Button#clear-btn:focus,
     PromptPanel Button#clear-btn:hover,
-    PromptPanel Button#clear-btn:active,
-    PromptPanel Button#clear-btn.-active,
-    PromptPanel Button#clear-btn:pressed {
+    PromptPanel Button#clear-btn.-active {
         background: red !important;
         color: white !important;
         border: solid darkred !important;

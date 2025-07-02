@@ -54,22 +54,22 @@ class ClaudeCodeMorph(App):
     
     Button {
         text-style: none !important;
-        outline: none !important;
     }
     
     Button:focus {
         text-style: none !important;
-        outline: none !important;
+    }
+    
+    Button:hover {
+        text-style: none !important;
+    }
+    
+    Button:focus-within {
+        text-style: none !important;
     }
     
     Button.-active {
         text-style: none !important;
-        outline: none !important;
-    }
-    
-    Button:pressed {
-        text-style: none !important;
-        outline: none !important;
     }
     
     #main-container {
