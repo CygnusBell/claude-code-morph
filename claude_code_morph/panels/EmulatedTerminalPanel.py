@@ -40,7 +40,14 @@ class EmulatedTerminalPanel(BasePanel):
         border: none;
     }
     
-    #terminal-screen {
+    #emulated-terminal-container {
+        layout: vertical;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+    }
+    
+    #emulated-terminal-screen {
         height: 1fr;
         background: #0c0c0c;
         color: #f0f0f0;
@@ -51,11 +58,11 @@ class EmulatedTerminalPanel(BasePanel):
         margin: 0;
     }
     
-    #terminal-screen:focus {
+    #emulated-terminal-screen:focus {
         border: none;
     }
     
-    #terminal-status {
+    #emulated-terminal-status {
         height: 1;
         background: #1a1a1a;
         color: #888888;
@@ -89,18 +96,18 @@ class EmulatedTerminalPanel(BasePanel):
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
         logging.debug("EmulatedTerminalPanel.compose_content called")
-        with Vertical():
+        with Vertical(id="emulated-terminal-container"):
             # Terminal screen display with scrolling
             self.screen_display = RichLog(
                 highlight=False,
                 markup=True,
                 wrap=True,
-                id="terminal-screen",
+                id="emulated-terminal-screen",
                 auto_scroll=True
             )
             yield self.screen_display
             
-            self.status = Static("Status: Initializing...", id="terminal-status")
+            self.status = Static("Status: Initializing...", id="emulated-terminal-status")
             yield self.status
             
     async def on_mount(self) -> None:

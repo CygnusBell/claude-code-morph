@@ -4,10 +4,10 @@
 import asyncio
 from textual.app import App
 from textual.widgets import Button
-from panels.BasePanel import BasePanel
-from panels.PromptPanel import PromptPanel
-from panels.RobustTerminalPanel import RobustTerminalPanel
-from widgets.resizable import ResizableContainer
+from claude_code_morph.panels.BasePanel import BasePanel
+from claude_code_morph.panels.PromptPanel import PromptPanel
+from claude_code_morph.panels.RobustTerminalPanel import RobustTerminalPanel
+from claude_code_morph.widgets.resizable import ResizableContainer
 
 
 class TestApp(App):

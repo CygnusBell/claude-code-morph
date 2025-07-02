@@ -406,6 +406,7 @@ class BasePanel(Static):
             
         # Handle widget hover detection
         if self.show_widget_labels:
+            # Use the event coordinates directly
             self._check_widget_hover(event.x, event.y)
             
     def on_mouse_up(self, event) -> None:
@@ -444,12 +445,6 @@ class BasePanel(Static):
                 not self.gear_button.region.contains(event.x, event.y)):
                 self.hide_context_menu()
                 
-    def on_leave(self, event: Leave) -> None:
-        """Handle mouse leave events - hide widget label when mouse moves away."""
-        if self.hover_label:
-            self.hover_label.remove()
-            self.hover_label = None
-            self.hovered_widget = None
                 
     def toggle_context_menu(self) -> None:
         """Toggle the visibility of the context menu."""
@@ -512,6 +507,10 @@ class BasePanel(Static):
         """Toggle the display of widget labels on hover."""
         self.show_widget_labels = not self.show_widget_labels
         logging.info(f"Panel {type(self).__name__} widget labels toggled: show_widget_labels={self.show_widget_labels}")
+        
+        # Set can_focus to True to receive mouse events
+        if self.show_widget_labels:
+            self.can_focus = True
         
         # If disabling, remove any existing label
         if not self.show_widget_labels and self.hover_label:
@@ -602,15 +601,20 @@ class BasePanel(Static):
         if not self.show_widget_labels:
             return
             
-        # Find the widget at the mouse position
+        # Find the widget at the mouse position within this panel
         widget = None
         for child in self.walk_children():
-            if hasattr(child, 'region') and child.region.contains(x, y):
-                # Skip container widgets unless they have specific IDs or classes
-                if child.__class__.__name__ in ['Container', 'Horizontal', 'Vertical'] and not child.id and not child.classes:
-                    continue
-                widget = child
-                break
+            if hasattr(child, 'region'):
+                # Check if mouse is within this child's region
+                region = child.region
+                if (region.x <= x < region.x + region.width and
+                    region.y <= y < region.y + region.height):
+                    # Skip containers unless they have IDs or classes
+                    if (child.__class__.__name__ in ['Container', 'Horizontal', 'Vertical'] and 
+                        not getattr(child, 'id', None) and 
+                        not getattr(child, 'classes', set())):
+                        continue
+                    widget = child
         
         # If we're hovering over a different widget or no widget
         if widget != self.hovered_widget:
@@ -629,6 +633,9 @@ class BasePanel(Static):
         """Show a label for the hovered widget."""
         if not widget:
             return
+            
+        # Track the hovered widget
+        self.hovered_widget = widget
             
         # Get widget type and basic info
         widget_type = widget.__class__.__name__
@@ -673,23 +680,14 @@ class BasePanel(Static):
         if extra_info:
             label_text += f" ({', '.join(extra_info)})"
             
-        # Create and show the widget label
-        self.hover_label = WidgetLabel(label_text, auto_hide_seconds=0)  # No auto-hide for hover labels
-        
-        # Mount to the app's screen
-        if hasattr(self, 'app') and self.app and hasattr(self.app, 'screen'):
-            self.app.screen.mount(self.hover_label)
+        # For now, use notifications to verify the hover detection is working
+        logging.debug(f"Hovering over widget: {label_text}")
+        if hasattr(self, 'app') and hasattr(self.app, 'notify'):
+            self.app.notify(label_text, severity="information", timeout=2)
             
-            # Calculate position for the label
-            if hasattr(widget, 'region'):
-                label_x, label_y = self.hover_label.calculate_label_position(
-                    widget.region.x, widget.region.y,
-                    widget.region.width, widget.region.height
-                )
-                self.hover_label.styles.offset = (label_x, label_y)
-                
-            # Show the label
-            self.hover_label.show()
+        # TODO: Implement actual floating label widget
+        # self.hover_label = WidgetLabel(label_text, auto_hide_seconds=0)
+        # ...
                 
     def _update_connected_splitters(self) -> None:
         """Update the lock state of splitters connected to this panel."""
@@ -826,19 +824,15 @@ class BasePanel(Static):
             self.widget_label = None
             
     def on_enter(self, event: Enter) -> None:
-        """Handle mouse enter events on widgets.
-        
-        Override this method in subclasses to show custom labels for specific widgets.
-        """
-        # Example: Show label when hovering over the gear button
-        if hasattr(self, 'gear_button') and event.widget == self.gear_button:
-            self.show_widget_label(event.widget, "Panel Settings")
+        """Handle mouse enter events on widgets."""
+        # Show widget label if enabled
+        if self.show_widget_labels and event.widget != self:
+            self._show_widget_label(event.widget, 0, 0)
             
     def on_leave(self, event: Leave) -> None:
-        """Handle mouse leave events on widgets.
-        
-        Override this method in subclasses to hide labels when appropriate.
-        """
-        # Hide label when leaving any widget that might have a label
-        if hasattr(self, 'gear_button') and event.widget == self.gear_button:
-            self.hide_widget_label()
+        """Handle mouse leave events on widgets."""
+        # Hide label when leaving a widget
+        if self.show_widget_labels and self.hovered_widget == event.widget:
+            self.hovered_widget = None
+            # Clear any notifications (temporary solution)
+            # In the future, this would remove the actual floating label
