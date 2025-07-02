@@ -499,23 +499,25 @@ class ClaudeCodeMorph(App):
         logging.info("User requested reload all via Ctrl+Shift+R")
         self.notify("Reloading all panels...", severity="information")
         
-        try:
-            # Reload each panel type
-            panel_modules = [
-                "claude_code_morph.panels.PromptPanel",
-                "claude_code_morph.panels.TerminalPanel", 
-                "claude_code_morph.panels.EmulatedTerminalPanel",
-                "claude_code_morph.panels.BasePanel"
-            ]
-            
-            for module_name in panel_modules:
-                self.reload_panel(module_name)
+        async def _do_reload():
+            try:
+                # Get unique panel types currently loaded
+                panel_types = set()
+                for panel in self.panels.values():
+                    panel_types.add(panel.__class__.__name__)
                 
-            self.notify("All panels reloaded successfully!", severity="success")
-            
-        except Exception as e:
-            logging.error(f"Error reloading panels: {e}")
-            self.notify(f"Error reloading panels: {e}", severity="error")
+                # Reload each panel type
+                for panel_type in panel_types:
+                    await self.reload_panel(panel_type)
+                    
+                self.notify("All panels reloaded successfully!", severity="success")
+                
+            except Exception as e:
+                logging.error(f"Error reloading panels: {e}")
+                self.notify(f"Error reloading panels: {e}", severity="error")
+        
+        # Schedule the async reload
+        self.call_later(lambda: asyncio.create_task(_do_reload()))
     
     def _connect_panels(self) -> None:
         """Connect the prompt panel to the terminal panel."""
