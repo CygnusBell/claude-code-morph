@@ -25,7 +25,7 @@ from .session_manager import SessionManager
 
 console = Console()
 
-# Hot-reloading disabled - use Ctrl+Shift+R for manual reload
+# Hot-reloading disabled - use Ctrl+R for manual reload
 # class PanelReloader(FileSystemEventHandler):
 #     """Handles hot-reloading of panel modules."""
 #     
@@ -100,7 +100,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
-        Binding("ctrl+shift+r", "reload_all", "Reload All"),
+        Binding("ctrl+r", "reload_all", "Reload All"),
     ]
     
     def __init__(self):
@@ -117,7 +117,7 @@ class ClaudeCodeMorph(App):
         self.panels_dir.mkdir(exist_ok=True)
         self.workspaces_dir.mkdir(exist_ok=True)
         
-        # Hot-reloading disabled - use Ctrl+Shift+R for manual reload
+        # Hot-reloading disabled - use Ctrl+R for manual reload
         # self.observer = Observer()
         # self.panel_reloader = PanelReloader(self)
         
@@ -145,7 +145,7 @@ class ClaudeCodeMorph(App):
         
     def on_mount(self) -> None:
         """Called when the app starts."""
-        # Hot-reloading disabled - use Ctrl+Shift+R for manual reload
+        # Hot-reloading disabled - use Ctrl+R for manual reload
         # try:
         #     self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
         #     self.observer.start()
@@ -496,7 +496,7 @@ class ClaudeCodeMorph(App):
     
     def action_reload_all(self) -> None:
         """Reload all panels by reloading their modules."""
-        logging.info("User requested reload all via Ctrl+Shift+R")
+        logging.info("User requested reload all via Ctrl+R")
         self.notify("Reloading all panels...", severity="information")
         
         async def _do_reload():
