@@ -120,8 +120,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
-        Binding("ctrl+comma", "reload_all", "Reload All", show=True, priority=True),
-        Binding("ctrl+t", "test_binding", "Test", show=True, priority=True),
+        Binding("ctrl+t", "reload_all", "Reload All", show=True, priority=True),
     ]
     
     def __init__(self):
@@ -527,19 +526,15 @@ class ClaudeCodeMorph(App):
             import os
             os._exit(99)
     
-    def action_test_binding(self) -> None:
-        """Test if bindings are working."""
-        self.notify("Test binding works! Keyboard shortcuts are functioning.", severity="success")
-        logging.info("Test binding executed successfully")
     
     def action_reload_all(self) -> None:
         """Reload all panels by reloading their modules."""
-        logging.info("User requested reload all via F5")
+        logging.info("User requested reload all via Ctrl+T")
         self.notify("Reloading all panels...", severity="information")
         
         # Also log to console for debugging
         import sys
-        print("\n[F5 PRESSED] Reloading all panels...", file=sys.stderr)
+        print("\n[CTRL+T PRESSED] Reloading all panels...", file=sys.stderr)
         
         async def _do_reload():
             try:
