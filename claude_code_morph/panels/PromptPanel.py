@@ -380,6 +380,7 @@ class PromptPanel(BasePanel):
         self._editing_index = -1  # Index of item being edited inline
         self._queue_paused = False  # Whether queue processing is paused
         self._last_activity_time = 0  # Track last activity for timeout detection
+        self._monitor_task = None  # Track the monitoring task
         
         # Debug: Log CSS loading
         logging.info("PromptPanel CSS styles loading...")
@@ -447,6 +448,11 @@ class PromptPanel(BasePanel):
                 self.clear_queue_btn = Button("Clear Queue", id="clear-queue-btn", classes="clear-button")
                 self.clear_queue_btn.display = False
                 yield self.clear_queue_btn
+                
+                # Resume Queue button (will be shown/hidden dynamically)
+                self.resume_queue_btn = Button("Resume Queue", id="resume-queue-btn", variant="success")
+                self.resume_queue_btn.display = False
+                yield self.resume_queue_btn
             
             # Prompt queue container
             self.queue_container = ScrollableContainer(id="queue-container", classes="prompt-queue-container")
@@ -485,11 +491,19 @@ class PromptPanel(BasePanel):
         if self.prompt_queue:
             # Show notification about restored queue
             old_count = len(self.prompt_queue)
-            self.app.notify(
-                f"Found {old_count} queued prompts from previous session. Click to edit/delete them.", 
-                severity="warning"
-            )
-            logging.info(f"Restored {old_count} prompts in queue from previous session")
+            pending_count = sum(1 for item in self.prompt_queue if item.get('status', 'pending') in ['pending', 'failed'])
+            
+            if pending_count > 0:
+                self.app.notify(
+                    f"Found {pending_count} pending prompts from previous session. Click 'Resume Queue' to process them.", 
+                    severity="warning"
+                )
+            else:
+                self.app.notify(
+                    f"Found {old_count} queued prompts from previous session (none pending).", 
+                    severity="information"
+                )
+            logging.info(f"Restored {old_count} prompts in queue from previous session ({pending_count} pending)")
             
             # Mark queue as paused initially so it doesn't auto-process old prompts
             self._queue_paused = True
@@ -503,8 +517,9 @@ class PromptPanel(BasePanel):
         
         self._update_queue_display()
         
-        # Start queue monitor task
-        self._queue_monitor_task = asyncio.create_task(self._monitor_queue())
+        # Start queue monitor task (combines health monitoring and processing)
+        if not hasattr(self, '_queue_monitor_task') or self._queue_monitor_task.done():
+            self._queue_monitor_task = asyncio.create_task(self._monitor_queue())
         
     async def _monitor_queue(self) -> None:
         """Monitor the queue and ensure it's processed when Claude is idle."""
@@ -513,25 +528,35 @@ class PromptPanel(BasePanel):
         
         while True:
             try:
-                await asyncio.sleep(2.0)  # Check every 2 seconds
+                await asyncio.sleep(5.0)  # Check every 5 seconds
                 monitor_cycle += 1
                 
-                # Log status every 10 cycles (20 seconds)
-                if monitor_cycle % 10 == 0 and (self.prompt_queue or self.is_processing):
-                    logging.info(f"Queue monitor status: queue_size={len(self.prompt_queue)}, is_processing={self.is_processing}")
+                # Skip if queue is empty
+                if not self.prompt_queue:
+                    continue
                 
-                # Watchdog: Check if processor has been stuck for too long
-                if self.is_processing and self._last_process_time > 0:
-                    time_since_last_process = time.time() - self._last_process_time
-                    if time_since_last_process > 60:  # 1 minute timeout (reduced from 3)
-                        logging.warning(f"Queue processor appears stuck (no activity for {time_since_last_process:.0f}s), resetting...")
-                        self.is_processing = False
-                        self._last_process_time = 0
-                        self.app.notify("Queue processor was stuck, resetting...", severity="warning")
+                # Count items by status
+                status_counts = {}
+                for item in self.prompt_queue:
+                    status = item.get('status', 'pending')
+                    status_counts[status] = status_counts.get(status, 0) + 1
                 
-                # If there are items in queue and not processing
-                if self.prompt_queue and not self.is_processing:
-                    # Check if Claude is idle
+                # Check processor health
+                processor_running = self._processor_task and not self._processor_task.done()
+                processing_queue_size = self._queue_for_processing.qsize()
+                
+                # Log status every 12 cycles (60 seconds)
+                if monitor_cycle % 12 == 0:
+                    logging.info(f"Queue Health: display={len(self.prompt_queue)} "
+                               f"processing={processing_queue_size} "
+                               f"status={status_counts} "
+                               f"processor={'running' if processor_running else 'stopped'} "
+                               f"paused={self._queue_paused}")
+                
+                # Auto-start processor if needed
+                pending_count = status_counts.get('pending', 0) + status_counts.get('failed', 0)
+                if pending_count > 0 and not processor_running and not self._queue_paused:
+                    # Check if Claude is idle before starting
                     terminal = None
                     for panel in self.app.panels.values():
                         if hasattr(panel, 'is_claude_processing'):
@@ -542,21 +567,20 @@ class PromptPanel(BasePanel):
                         try:
                             is_claude_processing = terminal.is_claude_processing()
                             if not is_claude_processing:
-                                # Claude is idle and we have items in queue - process them
-                                logging.info(f"Queue monitor: Found {len(self.prompt_queue)} items in queue, Claude is idle, starting processor")
-                                asyncio.create_task(self._process_queue())
+                                logging.info(f"Auto-starting processor: {pending_count} pending items, Claude is idle")
+                                self._ensure_processor_running()
                             else:
-                                logging.debug("Queue monitor: Claude is still processing")
+                                logging.debug("Claude is busy, waiting to start processor")
                         except Exception as e:
                             logging.error(f"Error checking Claude state: {e}")
                     else:
-                        # No terminal with is_claude_processing found
-                        if monitor_cycle % 30 == 0:  # Log every minute
-                            logging.warning("Queue monitor: No terminal panel found with is_claude_processing method")
-                        # Try to process anyway after a longer wait
-                        if not self.is_processing:
-                            logging.info("Queue monitor: Starting processor without Claude state check")
-                            asyncio.create_task(self._process_queue())
+                        # No terminal found, try anyway
+                        if monitor_cycle % 20 == 0:  # Log less frequently
+                            logging.warning("No terminal panel found, starting processor anyway")
+                        self._ensure_processor_running()
+                
+                # Update button visibility
+                self._update_queue_display()
                     
             except Exception as e:
                 logging.error(f"Queue monitor error: {e}", exc_info=True)
@@ -578,6 +602,8 @@ class PromptPanel(BasePanel):
             self.toggle_morph_mode()
         elif button_id == "clear-queue-btn":
             self.clear_queue()
+        elif button_id == "resume-queue-btn":
+            self.force_process_queue()
     
     def toggle_cost_saver(self) -> None:
         """Toggle cost saver mode."""
@@ -1032,10 +1058,13 @@ Output only the enhanced prompt, nothing else."""
         def handle_error(task):
             try:
                 task.result()
+            except asyncio.CancelledError:
+                logging.info("Queue processor was cancelled")
             except Exception as e:
                 logging.error(f"Queue processor error: {e}", exc_info=True)
                 self.app.notify(f"Queue processor error: {e}", severity="error")
-                # Reset state on error
+            finally:
+                # Reset state on error or cancellation
                 self._processor_task = None
         
         self._processor_task.add_done_callback(handle_error)
@@ -1156,9 +1185,15 @@ Output only the enhanced prompt, nothing else."""
         if not hasattr(self, 'queue_container'):
             return
             
-        # Show/hide Clear Queue button based on queue content
+        # Show/hide queue control buttons based on queue content
         if hasattr(self, 'clear_queue_btn'):
             self.clear_queue_btn.display = bool(self.prompt_queue)
+        
+        # Show Resume button if queue is paused or has pending items
+        if hasattr(self, 'resume_queue_btn'):
+            has_pending = any(item.get('status', 'pending') in ['pending', 'failed'] for item in self.prompt_queue)
+            is_processor_dead = not self._processor_task or self._processor_task.done()
+            self.resume_queue_btn.display = bool(self.prompt_queue) and has_pending and is_processor_dead
             
         # Clear current display
         self.queue_container.remove_children()
@@ -1472,5 +1507,7 @@ Output only the enhanced prompt, nothing else."""
         # Update queue display if mounted
         if hasattr(self, 'queue_container'):
             self._update_queue_display()
+        
+        # Queue monitor will be started by on_mount
             
         logging.info(f"PromptPanel state restored: mode={self.selected_mode}, queue_size={len(self.prompt_queue)}")
