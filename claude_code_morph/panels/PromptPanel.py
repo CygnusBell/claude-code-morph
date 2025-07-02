@@ -462,6 +462,9 @@ class PromptPanel(BasePanel):
         elif event.key == "enter" and self.prompt_queue:
             # Edit highlighted item
             self._edit_queue_item(self.highlighted_queue_index)
+        elif event.key == "ctrl+p":
+            # Force process queue
+            self.force_process_queue()
             
     def submit_prompt(self) -> None:
         """Submit the current prompt."""
@@ -639,6 +642,22 @@ Output only the enhanced prompt, nothing else."""
             self._update_queue_display()
             self.app.notify(f"Cleared {count} prompts from queue", severity="information")
             logging.info(f"User cleared {count} prompts from queue")
+    
+    def force_process_queue(self) -> None:
+        """Force process the queue even if processor is stuck."""
+        if not self.prompt_queue:
+            self.app.notify("Queue is empty", severity="information")
+            return
+            
+        if self.is_processing:
+            # Reset the processing flag
+            self.is_processing = False
+            self.app.notify("Reset queue processor, starting again...", severity="warning")
+            logging.info("Force resetting queue processor")
+        
+        # Start processing
+        asyncio.create_task(self._process_queue())
+        self.app.notify("Force processing queue...", severity="information")
     
     
     async def _confirm_clear(self) -> None:

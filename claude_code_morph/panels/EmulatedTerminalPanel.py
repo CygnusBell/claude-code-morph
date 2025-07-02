@@ -158,6 +158,17 @@ class EmulatedTerminalPanel(BasePanel):
             self.status.update("Status: [green]Connected[/green]")
             logging.info(f"Claude CLI started successfully with terminal emulation")
             
+            # After a short delay, assume Claude is ready if we haven't detected the prompt
+            async def check_ready():
+                await asyncio.sleep(3.0)
+                if not self._claude_started:
+                    logging.info("Claude startup timeout - assuming ready")
+                    self._claude_started = True
+                    self._is_processing = False
+                    self.status.update("Status: [green]Ready[/green]")
+            
+            asyncio.create_task(check_ready())
+            
         except Exception as e:
             self.screen_display.write(f"[red]Failed to start Claude CLI: {e}[/red]")
             self.status.update("Status: [red]Error[/red]")
@@ -278,13 +289,24 @@ class EmulatedTerminalPanel(BasePanel):
             # Check if Claude is ready (showing prompt)
             if lines:
                 # Check last few lines for prompt
-                for line in lines[-3:]:
+                for i, line in enumerate(lines[-5:]):
                     line_text = line.strip()
-                    # Claude shows "Human: " when ready for input
-                    if "Human: " in line_text or line_text.endswith("Human: "):
+                    # Log what we're seeing in the last lines
+                    if i == 0:
+                        logging.debug(f"Checking last 5 lines for prompt...")
+                    logging.debug(f"  Line {i}: '{line_text[:50]}...'")
+                    
+                    # Claude shows "Human: " or just "Human:" when ready for input
+                    # Also check for the prompt symbol ">"
+                    if ("Human:" in line_text or 
+                        line_text.endswith("Human:") or 
+                        line_text == ">" or 
+                        line_text.endswith(" >") or
+                        (line_text == "" and i > 0 and lines[-5:][i-1].strip().endswith("Human:"))):
                         self._is_processing = False
                         self._claude_started = True
                         self.status.update("Status: [green]Ready[/green]")
+                        logging.info(f"Claude is ready - found prompt indicator: '{line_text}'")
                         break
                     
             # Debug: Log if we see file operation messages (disabled to prevent log flooding)
@@ -445,8 +467,11 @@ class EmulatedTerminalPanel(BasePanel):
         """Check if Claude is currently processing a request."""
         # If Claude hasn't started yet, it's considered "processing"
         if not self._claude_started:
+            logging.debug(f"Claude not started yet, returning True")
             return True
-        return self._is_processing
+        result = self._is_processing
+        logging.debug(f"Claude processing state: {result}")
+        return result
     
     async def on_unmount(self) -> None:
         """Clean up when panel is unmounted."""
