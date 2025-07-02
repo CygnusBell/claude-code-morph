@@ -101,27 +101,32 @@ class PromptPanel(BasePanel):
         background: $surface;
         border: solid $primary;
         margin-left: auto;
+        text-style: none;
     }
     
     PromptPanel #morph-mode-btn {
         background: $panel;
         border: solid $primary;
         min-width: 13;
+        text-style: none;
     }
     
     PromptPanel #morph-mode-btn:hover {
         background: $primary-lighten-1;
+        text-style: none;
     }
     
     PromptPanel #morph-mode-btn.active {
         background: rgb(0,100,0);
         color: white;
         border: solid rgb(0,150,0);
+        text-style: none;
     }
     
     PromptPanel #morph-mode-btn.active:hover {
         background: rgb(0,120,0);
         color: white;
+        text-style: none;
     }
     
     # Clickable text buttons
@@ -149,9 +154,18 @@ class PromptPanel(BasePanel):
         padding: 0;
         content-align: center middle;
         text-align: center;
+        text-style: none;
     }
     
     PromptPanel Button:focus {
+        text-style: none;
+    }
+    
+    PromptPanel Button:hover {
+        text-style: none;
+    }
+    
+    PromptPanel Button:active {
         text-style: none;
     }
     
@@ -303,6 +317,7 @@ class PromptPanel(BasePanel):
         self.prompt_queue = []  # List of queued prompts
         self.highlighted_queue_index = 0  # Currently highlighted item in queue
         self.is_processing = False  # Whether Claude is currently processing
+        self._last_process_time = 0  # Last time a prompt was processed
         
         # Debug: Log CSS loading
         logging.info("PromptPanel CSS styles loading...")
@@ -416,6 +431,48 @@ class PromptPanel(BasePanel):
             asyncio.create_task(reset_processing())
         
         self._update_queue_display()
+        
+        # Start queue monitor task
+        self._queue_monitor_task = asyncio.create_task(self._monitor_queue())
+        
+    async def _monitor_queue(self) -> None:
+        """Monitor the queue and ensure it's processed when Claude is idle."""
+        import time
+        
+        while True:
+            try:
+                await asyncio.sleep(2.0)  # Check every 2 seconds
+                
+                # Watchdog: Check if processor has been stuck for too long
+                if self.is_processing and self._last_process_time > 0:
+                    time_since_last_process = time.time() - self._last_process_time
+                    if time_since_last_process > 180:  # 3 minutes timeout
+                        logging.warning(f"Queue processor appears stuck (no activity for {time_since_last_process:.0f}s), resetting...")
+                        self.is_processing = False
+                        self._last_process_time = 0
+                        self.app.notify("Queue processor was stuck, resetting...", severity="warning")
+                
+                # If there are items in queue and not processing
+                if self.prompt_queue and not self.is_processing:
+                    # Check if Claude is idle
+                    terminal = None
+                    for panel in self.app.panels.values():
+                        if hasattr(panel, 'is_claude_processing'):
+                            terminal = panel
+                            break
+                    
+                    if terminal:
+                        is_claude_processing = terminal.is_claude_processing()
+                        if not is_claude_processing:
+                            # Claude is idle and we have items in queue - process them
+                            logging.info(f"Queue monitor: Found {len(self.prompt_queue)} items in queue, Claude is idle, starting processor")
+                            asyncio.create_task(self._process_queue())
+                        else:
+                            logging.debug("Queue monitor: Claude is still processing")
+                    
+            except Exception as e:
+                logging.error(f"Queue monitor error: {e}")
+                await asyncio.sleep(5.0)  # Wait longer on error
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -781,6 +838,9 @@ Output only the enhanced prompt, nothing else."""
         self.is_processing = True
         
         try:
+            import time
+            self._last_process_time = time.time()  # Set watchdog timer
+            
             while self.prompt_queue:
                 logging.info(f"Processing queue with {len(self.prompt_queue)} items")
                 
@@ -821,10 +881,14 @@ Output only the enhanced prompt, nothing else."""
                 self.prompt_queue.pop(0)
                 self._update_queue_display()
                 
+                # Update watchdog timer
+                self._last_process_time = time.time()
+                
                 logging.info(f"Prompt processed, {len(self.prompt_queue)} items remaining")
                 
         finally:
             self.is_processing = False
+            self._last_process_time = 0  # Reset watchdog timer
     
     async def _wait_for_claude_idle(self) -> None:
         """Wait for Claude CLI to become idle."""
