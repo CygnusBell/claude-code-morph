@@ -17,11 +17,8 @@ import asyncio
 try:
     from .BasePanel import BasePanel
 except ImportError:
-    # Fallback for dynamic loading
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent))
-    from BasePanel import BasePanel
+    # Fallback for when module is loaded dynamically
+    from claude_code_morph.panels.BasePanel import BasePanel
 
 class PipeTerminalPanel(BasePanel):
     """Terminal panel that uses pipe mode for Claude CLI - more reliable."""

@@ -775,7 +775,11 @@ class BasePanel(Static):
             position: Optional position for the label. If not provided, will position near the widget
         """
         # Lazily import WidgetLabel to avoid circular imports
-        from ..widgets.widget_label import WidgetLabel
+        try:
+            from ..widgets.widget_label import WidgetLabel
+        except ImportError:
+            # Fallback for when module is loaded dynamically
+            from claude_code_morph.widgets.widget_label import WidgetLabel
         
         # Remove any existing widget label
         if self.widget_label:
