@@ -266,8 +266,8 @@ class BasePanel(Static):
             # Look for PromptPanel and check if morph mode is active
             try:
                 for widget in self.app.query("PromptPanel"):
-                    if hasattr(widget, 'morph_mode') and widget.morph_mode:
-                        logging.debug(f"Morph mode is active: {widget.morph_mode}")
+                    if hasattr(widget, 'selected_mode') and widget.selected_mode == "morph":
+                        logging.debug(f"Morph mode is active: {widget.selected_mode}")
                         return True
                 logging.debug("Morph mode is not active")
             except Exception as e:
