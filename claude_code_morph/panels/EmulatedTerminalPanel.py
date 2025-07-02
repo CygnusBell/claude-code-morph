@@ -79,6 +79,8 @@ class EmulatedTerminalPanel(BasePanel):
         self.running = False
         self.conversation_history = []
         self.can_focus = True
+        self._is_processing = False  # Track if Claude is processing
+        self._claude_started = False  # Track if Claude has shown initial prompt
         
         # Initialize pyte terminal emulator
         self.terminal_screen = pyte.Screen(120, 40)  # 120 columns, 40 rows
@@ -273,6 +275,18 @@ class EmulatedTerminalPanel(BasePanel):
                 if line:  # Only write non-empty lines
                     self.screen_display.write(line)
                 
+            # Check if Claude is ready (showing prompt)
+            if lines:
+                # Check last few lines for prompt
+                for line in lines[-3:]:
+                    line_text = line.strip()
+                    # Claude shows "Human: " when ready for input
+                    if "Human: " in line_text or line_text.endswith("Human: "):
+                        self._is_processing = False
+                        self._claude_started = True
+                        self.status.update("Status: [green]Ready[/green]")
+                        break
+                    
             # Debug: Log if we see file operation messages (disabled to prevent log flooding)
             # content = '\n'.join(lines)
             # if any(phrase in content.lower() for phrase in ['created', 'updated', 'wrote', 'edit', 'file']):
@@ -295,6 +309,7 @@ class EmulatedTerminalPanel(BasePanel):
             logging.info(f"Morph mode: Working on Claude Code Morph source")
             
         self.status.update("Status: [yellow]Processing...[/yellow]")
+        self._is_processing = True  # Mark as processing
         
         try:
             # Clear any existing input line with Ctrl+U
@@ -426,6 +441,13 @@ class EmulatedTerminalPanel(BasePanel):
                     
         self.screen_display.write("[green]Session restored[/green]")
         
+    def is_claude_processing(self) -> bool:
+        """Check if Claude is currently processing a request."""
+        # If Claude hasn't started yet, it's considered "processing"
+        if not self._claude_started:
+            return True
+        return self._is_processing
+    
     async def on_unmount(self) -> None:
         """Clean up when panel is unmounted."""
         self.running = False

@@ -1,0 +1,10 @@
+Test content for clipboard operations.
+
+If you can copy this text, then clipboard is working!
+
+Try these keyboard shortcuts in the app:
+- Cmd+C (Mac) or Ctrl+Shift+C (Linux/Windows): Copy selected text
+- Cmd+Shift+C: Copy all panel content
+
+The app also saves copied content to:
+/home/kruger/projects/claude-code-morph/claude_code_morph/clipboard.txt

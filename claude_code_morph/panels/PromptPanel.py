@@ -4,14 +4,14 @@ import os
 import logging
 from typing import Optional, Callable, Dict, Any
 from textual.app import ComposeResult
-from textual.containers import Vertical, Horizontal, Center, Middle, Grid
+from textual.containers import Vertical, Horizontal, Center, Middle, Grid, ScrollableContainer
 from textual.widgets import Static, TextArea, Button, Label, Select
 from textual.reactive import reactive
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.events import Click
+from textual.events import Click, MouseScrollUp, MouseScrollDown
 from rich.panel import Panel
 from rich.syntax import Syntax
 import asyncio
@@ -108,14 +108,12 @@ class PromptPanel(BasePanel):
     
     PromptPanel #morph-mode-btn {
         background: $panel;
-        color: $text;
         border: solid $primary;
         min-width: 13;
     }
     
     PromptPanel #morph-mode-btn:hover {
         background: $primary-lighten-1;
-        color: $text;
     }
     
     PromptPanel #morph-mode-btn.active {
@@ -134,12 +132,10 @@ class PromptPanel(BasePanel):
         padding: 0 1;
         margin: 0 1;
         background: $panel;
-        color: $text;
     }
     
     PromptPanel .clickable:hover {
         background: $primary;
-        color: $text;
     }
     
     PromptPanel .selected {
@@ -160,23 +156,6 @@ class PromptPanel(BasePanel):
     
     PromptPanel Button:focus {
         text-style: none;
-        color: $text;
-    }
-    
-    PromptPanel Button:hover {
-        color: $text;
-    }
-    
-    PromptPanel Button:active {
-        color: $text;
-    }
-    
-    PromptPanel Button.-active {
-        color: $text;
-    }
-    
-    PromptPanel Button:pressed {
-        color: $text;
     }
     
     PromptPanel Button#clear-btn, PromptPanel .clear-button {
@@ -185,6 +164,91 @@ class PromptPanel(BasePanel):
         border: solid darkred !important;
         content-align: center middle;
         text-align: center;
+    }
+    
+    PromptPanel Button#clear-btn:focus,
+    PromptPanel Button#clear-btn:hover,
+    PromptPanel Button#clear-btn:active,
+    PromptPanel Button#clear-btn.-active,
+    PromptPanel Button#clear-btn:pressed {
+        background: red !important;
+        color: white !important;
+        border: solid darkred !important;
+    }
+    
+    /* Prompt queue styles */
+    PromptPanel .prompt-queue-container {
+        height: 1fr;
+        min-height: 5;
+        margin: 1;
+        padding: 0;
+        background: $surface;
+        border: solid $primary;
+        overflow-y: auto;
+    }
+    
+    PromptPanel .prompt-queue-item {
+        height: 3;
+        padding: 0 1;
+        margin: 0;
+        background: $panel;
+        border-bottom: solid $primary-darken-2;
+    }
+    
+    PromptPanel .prompt-queue-item:hover {
+        background: $primary-darken-3;
+    }
+    
+    PromptPanel .prompt-queue-item.highlighted {
+        background: $primary-darken-2;
+        border: solid $accent;
+    }
+    
+    PromptPanel .prompt-queue-item Label {
+        height: 100%;
+        overflow: hidden ellipsis;
+        padding: 1 0;
+    }
+    
+    PromptPanel .queue-empty-message {
+        height: 100%;
+        content-align: center middle;
+        text-style: italic;
+        color: $text-muted;
+    }
+    
+    /* Edit prompt dialog styles */
+    EditPromptDialog {
+        align: center middle;
+    }
+    
+    EditPromptDialog #dialog {
+        width: 80%;
+        max-width: 100;
+        height: 20;
+        padding: 1;
+        border: thick $primary 80%;
+        background: $surface;
+    }
+    
+    EditPromptDialog #edit-input {
+        height: 1fr;
+        margin: 1;
+        padding: 1;
+        background: $panel;
+        border: solid $primary;
+    }
+    
+    EditPromptDialog #buttons {
+        layout: horizontal;
+        height: 3;
+        align: center middle;
+        margin-top: 1;
+    }
+    
+    EditPromptDialog Button {
+        width: 12;
+        margin: 0 1;
     }
     
     
@@ -238,6 +302,11 @@ class PromptPanel(BasePanel):
         self.prompt_history = []
         self.history_index = -1
         
+        # Prompt queue management
+        self.prompt_queue = []  # List of queued prompts
+        self.highlighted_queue_index = 0  # Currently highlighted item in queue
+        self.is_processing = False  # Whether Claude is currently processing
+        
         # Debug: Log CSS loading
         logging.info("PromptPanel CSS styles loading...")
         logging.info(f"CSS Hash: {hash(self.CSS)}")
@@ -249,7 +318,9 @@ class PromptPanel(BasePanel):
             'prompt_text': '',
             'prompt_history': [],
             'history_index': -1,
-            'cost_saver_enabled': False
+            'cost_saver_enabled': False,
+            'prompt_queue': [],
+            'highlighted_queue_index': 0
         }
         
     def compose_content(self) -> ComposeResult:
@@ -288,7 +359,14 @@ class PromptPanel(BasePanel):
                 # Action buttons
                 yield Button("Submit", id="submit-btn")
                 yield Button("Clear", id="clear-btn")
+            
+            # Prompt queue container
+            self.queue_container = ScrollableContainer(classes="prompt-queue-container")
+            yield self.queue_container
     
+    def on_mount(self) -> None:
+        """Initialize the queue display when mounted."""
+        self._update_queue_display()
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -347,6 +425,16 @@ class PromptPanel(BasePanel):
             self.navigate_history(-1)
         elif event.key == "ctrl+down":
             self.navigate_history(1)
+        # Queue navigation
+        elif event.key == "up" and self.prompt_queue:
+            self.highlighted_queue_index = max(0, self.highlighted_queue_index - 1)
+            self._update_queue_display()
+        elif event.key == "down" and self.prompt_queue:
+            self.highlighted_queue_index = min(len(self.prompt_queue) - 1, self.highlighted_queue_index + 1)
+            self._update_queue_display()
+        elif event.key == "enter" and self.prompt_queue:
+            # Edit highlighted item
+            self._edit_queue_item(self.highlighted_queue_index)
             
     def submit_prompt(self) -> None:
         """Submit the current prompt."""
@@ -360,27 +448,27 @@ class PromptPanel(BasePanel):
         self.prompt_history.append(prompt)
         self.history_index = len(self.prompt_history)
         
-        # Check if cost saver is enabled
-        if self.cost_saver_enabled:
-            # Optimize the prompt before submitting
-            self.optimize_and_submit_prompt(prompt)
-            return
-        
-        # Use the prompt directly
-        final_prompt = prompt
-        
-        # Call submit handler with mode
+        # Add to queue
         mode = getattr(self, 'selected_mode', 'develop')
-        if self.on_submit:
-            # Run async callback with mode
-            task = asyncio.create_task(self._async_submit(final_prompt, mode))
-            task.add_done_callback(self._handle_task_error)
-        else:
-            # Notify terminal panel directly with mode
-            asyncio.create_task(self._send_to_terminal(final_prompt, mode))
-            
+        self.prompt_queue.append({
+            'prompt': prompt,
+            'mode': mode,
+            'cost_saver': self.cost_saver_enabled
+        })
+        
+        # Update queue display
+        self._update_queue_display()
+        
         # Clear input
         self.prompt_input.text = ""
+        
+        # Notify user
+        self.app.notify(f"Prompt added to queue (position {len(self.prompt_queue)})", severity="information")
+        
+        # Process queue if not already processing
+        if not self.is_processing:
+            logging.info("Starting queue processor")
+            asyncio.create_task(self._process_queue())
         
     async def _async_submit(self, prompt: str, mode: str) -> None:
         """Handle async submission."""
@@ -604,6 +692,220 @@ Output only the enhanced prompt, nothing else."""
             logging.error(f"Error in get_selected_content: {e}")
         return None
     
+    async def _process_queue(self) -> None:
+        """Process prompts from the queue."""
+        if self.is_processing or not self.prompt_queue:
+            return
+            
+        self.is_processing = True
+        
+        try:
+            while self.prompt_queue:
+                logging.info(f"Processing queue with {len(self.prompt_queue)} items")
+                
+                # First, wait for Claude to become idle before processing
+                logging.info("Waiting for Claude to become idle...")
+                await self._wait_for_claude_idle()
+                logging.info("Claude is idle, processing next prompt")
+                
+                # Double-check we still have items (might have been deleted while waiting)
+                if not self.prompt_queue:
+                    break
+                
+                # Get the first prompt
+                item = self.prompt_queue[0]
+                prompt = item['prompt']
+                mode = item['mode']
+                cost_saver = item['cost_saver']
+                
+                logging.info(f"Processing prompt: {prompt[:50]}...")
+                
+                # Update display to show processing
+                self._update_queue_display()
+                
+                # Process with cost saver if enabled
+                if cost_saver:
+                    prompt = await self._call_optimizer(prompt)
+                
+                # Send to terminal
+                if self.on_submit:
+                    await self._async_submit(prompt, mode)
+                else:
+                    await self._send_to_terminal(prompt, mode)
+                
+                # Wait a moment for the prompt to be sent
+                await asyncio.sleep(0.5)
+                
+                # Remove from queue
+                self.prompt_queue.pop(0)
+                self._update_queue_display()
+                
+                logging.info(f"Prompt processed, {len(self.prompt_queue)} items remaining")
+                
+        finally:
+            self.is_processing = False
+    
+    async def _wait_for_claude_idle(self) -> None:
+        """Wait for Claude CLI to become idle."""
+        # Check terminal panel for idle state
+        terminal = None
+        for panel in self.app.panels.values():
+            if hasattr(panel, 'is_claude_processing'):
+                terminal = panel
+                break
+        
+        if terminal:
+            # Poll until Claude is idle (showing Human: prompt)
+            max_wait = 300  # 5 minutes max wait
+            waited = 0
+            while waited < max_wait:
+                # Check if Claude is processing
+                is_processing = terminal.is_claude_processing()
+                if not is_processing:
+                    # Claude is idle, we can proceed
+                    break
+                await asyncio.sleep(0.5)
+                waited += 0.5
+            
+            # Extra wait to ensure prompt is visible
+            await asyncio.sleep(0.5)
+        else:
+            # Fallback: wait a fixed time
+            await asyncio.sleep(2.0)
+    
+    def _update_queue_display(self) -> None:
+        """Update the queue display."""
+        if not hasattr(self, 'queue_container'):
+            return
+            
+        # Clear current display
+        self.queue_container.remove_children()
+        
+        if not self.prompt_queue:
+            # Show empty message
+            empty_msg = Static("Queue is empty", classes="queue-empty-message")
+            self.queue_container.mount(empty_msg)
+        else:
+            # Display queue items
+            for i, item in enumerate(self.prompt_queue):
+                # Create queue item container
+                queue_item = Vertical(classes="prompt-queue-item")
+                
+                # Add highlighted class if this is the highlighted item
+                if i == self.highlighted_queue_index:
+                    queue_item.add_class("highlighted")
+                
+                # Truncate prompt for display
+                prompt_text = item['prompt']
+                if len(prompt_text) > 80:
+                    prompt_text = prompt_text[:77] + "..."
+                
+                # Add status indicator
+                if i == 0 and self.is_processing:
+                    status = "⚡ Processing: "
+                else:
+                    status = f"{i+1}. "
+                
+                # Create label
+                label = Label(f"{status}{prompt_text}")
+                queue_item.mount(label)
+                
+                # Make it clickable
+                queue_item.can_focus = True
+                self.queue_container.mount(queue_item)
+    
+    def on_click(self, event: Click) -> None:
+        """Handle click events on queue items."""
+        # First call parent's on_click
+        super().on_click(event)
+        
+        # Check if click is on a queue item
+        target = self.app.get_widget_at(*event.screen_offset)
+        if target and hasattr(target, 'parent'):
+            # Find the queue item container
+            widget = target
+            while widget and not widget.has_class("prompt-queue-item"):
+                widget = widget.parent
+            
+            if widget and widget.has_class("prompt-queue-item"):
+                # Find index of clicked item
+                for i, child in enumerate(self.queue_container.children):
+                    if child == widget:
+                        self._edit_queue_item(i)
+                        break
+    
+    def _edit_queue_item(self, index: int) -> None:
+        """Edit a queue item."""
+        if 0 <= index < len(self.prompt_queue):
+            task = asyncio.create_task(self._show_edit_dialog(index))
+            task.add_done_callback(self._handle_task_error)
+    
+    async def _show_edit_dialog(self, index: int) -> None:
+        """Show edit dialog for a queue item."""
+        
+        class EditPromptDialog(ModalScreen):
+            """Modal dialog for editing prompts."""
+            
+            def __init__(self, prompt_text: str, **kwargs):
+                super().__init__(**kwargs)
+                self.prompt_text = prompt_text
+            
+            def compose(self):
+                with Center():
+                    with Middle():
+                        with Vertical(id="dialog"):
+                            yield Label("Edit Prompt", id="title")
+                            self.edit_input = TextArea(self.prompt_text, id="edit-input")
+                            yield self.edit_input
+                            with Horizontal(id="buttons"):
+                                yield Button("Save", variant="primary", id="save")
+                                yield Button("Delete", variant="warning", id="delete")
+                                yield Button("Cancel", variant="default", id="cancel")
+            
+            def on_button_pressed(self, event: Button.Pressed) -> None:
+                if event.button.id == "save":
+                    self.dismiss(("save", self.edit_input.text))
+                elif event.button.id == "delete":
+                    self.dismiss(("delete", None))
+                else:
+                    self.dismiss((None, None))
+        
+        # Show dialog
+        item = self.prompt_queue[index]
+        result = await self.app.push_screen(
+            EditPromptDialog(item['prompt']), 
+            wait_for_dismiss=True
+        )
+        
+        if result:
+            action, new_text = result
+            if action == "save" and new_text:
+                # Update the prompt
+                self.prompt_queue[index]['prompt'] = new_text.strip()
+                self._update_queue_display()
+                self.app.notify("Prompt updated", severity="information")
+            elif action == "delete":
+                # Remove from queue
+                self.prompt_queue.pop(index)
+                # Adjust highlighted index if needed
+                if self.highlighted_queue_index >= len(self.prompt_queue) and self.highlighted_queue_index > 0:
+                    self.highlighted_queue_index = len(self.prompt_queue) - 1
+                self._update_queue_display()
+                self.app.notify("Prompt removed from queue", severity="information")
+    
+    
+    def on_mouse_scroll_up(self, event: MouseScrollUp) -> None:
+        """Handle mouse scroll up on queue."""
+        if self.prompt_queue and event.x >= self.queue_container.region.x and event.x <= self.queue_container.region.x + self.queue_container.region.width:
+            self.highlighted_queue_index = max(0, self.highlighted_queue_index - 1)
+            self._update_queue_display()
+    
+    def on_mouse_scroll_down(self, event: MouseScrollDown) -> None:
+        """Handle mouse scroll down on queue."""
+        if self.prompt_queue and event.x >= self.queue_container.region.x and event.x <= self.queue_container.region.x + self.queue_container.region.width:
+            self.highlighted_queue_index = min(len(self.prompt_queue) - 1, self.highlighted_queue_index + 1)
+            self._update_queue_display()
+    
     def get_state(self) -> Dict[str, Any]:
         """Get current panel state for persistence.
         
@@ -613,7 +915,10 @@ Output only the enhanced prompt, nothing else."""
         state = {
             'selected_mode': getattr(self, 'selected_mode', 'develop'),
             'prompt_history': self.prompt_history.copy() if hasattr(self, 'prompt_history') else [],
-            'history_index': getattr(self, 'history_index', -1)
+            'history_index': getattr(self, 'history_index', -1),
+            'prompt_queue': self.prompt_queue.copy() if hasattr(self, 'prompt_queue') else [],
+            'highlighted_queue_index': getattr(self, 'highlighted_queue_index', 0),
+            'cost_saver_enabled': getattr(self, 'cost_saver_enabled', False)
         }
         
         # Get current prompt text if available
@@ -639,6 +944,17 @@ Output only the enhanced prompt, nothing else."""
                 else:
                     self.morph_mode_btn.label = "○ Morph Mode"
                     self.morph_mode_btn.remove_class("active")
+        
+        # Restore cost saver state
+        if 'cost_saver_enabled' in state:
+            self.cost_saver_enabled = state['cost_saver_enabled']
+            if hasattr(self, 'cost_saver_btn'):
+                if self.cost_saver_enabled:
+                    self.cost_saver_btn.label = "● Cost Saver"
+                    self.cost_saver_btn.add_class("active")
+                else:
+                    self.cost_saver_btn.label = "○ Cost Saver"
+                    self.cost_saver_btn.remove_class("active")
                     
         # Restore prompt history
         if 'prompt_history' in state:
@@ -647,8 +963,19 @@ Output only the enhanced prompt, nothing else."""
         if 'history_index' in state:
             self.history_index = state['history_index']
             
+        # Restore prompt queue
+        if 'prompt_queue' in state:
+            self.prompt_queue = state['prompt_queue']
+            
+        if 'highlighted_queue_index' in state:
+            self.highlighted_queue_index = state['highlighted_queue_index']
+            
         # Restore current prompt text
         if 'current_prompt' in state and hasattr(self, 'prompt_input') and self.prompt_input:
             self.prompt_input.text = state['current_prompt']
             
-        logging.info(f"PromptPanel state restored: mode={self.selected_mode}")
+        # Update queue display if mounted
+        if hasattr(self, 'queue_container'):
+            self._update_queue_display()
+            
+        logging.info(f"PromptPanel state restored: mode={self.selected_mode}, queue_size={len(self.prompt_queue)}")
