@@ -100,6 +100,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
+        Binding("ctrl+shift+r", "reload_all", "Reload All"),
     ]
     
     def __init__(self):
@@ -492,6 +493,29 @@ class ClaudeCodeMorph(App):
             # If graceful exit fails, force exit
             import os
             os._exit(99)
+    
+    def action_reload_all(self) -> None:
+        """Reload all panels by reloading their modules."""
+        logging.info("User requested reload all via Ctrl+Shift+R")
+        self.notify("Reloading all panels...", severity="information")
+        
+        try:
+            # Reload each panel type
+            panel_modules = [
+                "claude_code_morph.panels.PromptPanel",
+                "claude_code_morph.panels.TerminalPanel", 
+                "claude_code_morph.panels.EmulatedTerminalPanel",
+                "claude_code_morph.panels.BasePanel"
+            ]
+            
+            for module_name in panel_modules:
+                self.reload_panel(module_name)
+                
+            self.notify("All panels reloaded successfully!", severity="success")
+            
+        except Exception as e:
+            logging.error(f"Error reloading panels: {e}")
+            self.notify(f"Error reloading panels: {e}", severity="error")
     
     def _connect_panels(self) -> None:
         """Connect the prompt panel to the terminal panel."""
