@@ -223,6 +223,16 @@ class PromptPanel(BasePanel):
         border: solid $accent;
     }
     
+    PromptPanel .prompt-queue-item.processing {
+        background: $warning-darken-3;
+        border-left: thick $warning;
+    }
+    
+    PromptPanel .prompt-queue-item.next {
+        background: $success-darken-3;
+        border-left: thick $success;
+    }
+    
     PromptPanel .prompt-queue-item Label {
         height: 100%;
         overflow: hidden ellipsis;
@@ -648,9 +658,19 @@ class PromptPanel(BasePanel):
                 break
                 
         if terminal and hasattr(terminal, 'send_prompt'):
-            await terminal.send_prompt(prompt, mode)
+            try:
+                logging.info(f"Sending prompt to terminal panel: {terminal.__class__.__name__}")
+                await terminal.send_prompt(prompt, mode)
+                logging.info("Prompt sent successfully to terminal")
+            except Exception as e:
+                logging.error(f"Error sending prompt to terminal: {e}")
+                self.app.notify(f"Error sending prompt: {e}", severity="error")
+                raise
         else:
-            self.app.notify("Terminal panel not found", severity="error")
+            error_msg = "Terminal panel not found or doesn't have send_prompt method"
+            logging.error(error_msg)
+            self.app.notify(error_msg, severity="error")
+            raise RuntimeError(error_msg)
             
     def optimize_and_submit_prompt(self, prompt: str) -> None:
         """Optimize and submit the prompt when Token Saver is enabled."""
@@ -945,7 +965,28 @@ Output only the enhanced prompt, nothing else."""
                 # Wait longer to ensure the prompt is fully sent and processed
                 await asyncio.sleep(2.0)
                 
-                # Remove from queue
+                # Wait for Claude to start processing before removing from queue
+                # This prevents removing items before they're actually being processed
+                logging.info("Waiting for Claude to start processing the prompt...")
+                start_wait = time.time()
+                max_wait_for_processing = 10.0  # 10 seconds max
+                
+                while time.time() - start_wait < max_wait_for_processing:
+                    terminal = None
+                    for panel in self.app.panels.values():
+                        if hasattr(panel, 'is_claude_processing'):
+                            terminal = panel
+                            break
+                    
+                    if terminal and terminal.is_claude_processing():
+                        logging.info("Claude started processing the prompt")
+                        break
+                        
+                    await asyncio.sleep(0.5)
+                else:
+                    logging.warning("Claude didn't start processing within timeout")
+                
+                # Remove from queue only after confirming Claude is processing
                 self.prompt_queue.pop(0)
                 self._update_queue_display()
                 
@@ -953,6 +994,9 @@ Output only the enhanced prompt, nothing else."""
                 self._last_process_time = time.time()
                 
                 logging.info(f"Prompt processed, {len(self.prompt_queue)} items remaining")
+                
+                # Give Claude time to process before sending next prompt
+                await asyncio.sleep(3.0)
             
             # Notify completion
             if processed_count > 0:
@@ -1041,14 +1085,22 @@ Output only the enhanced prompt, nothing else."""
                 if len(prompt_text) > 80:
                     prompt_text = prompt_text[:77] + "..."
                 
-                # Add status indicator
+                # Add status indicator with more detail
                 if i == 0 and self.is_processing:
                     status = "⚡ Processing: "
+                    queue_item.add_class("processing")
+                elif i == 0:
+                    status = "▶️ Next: "
+                    queue_item.add_class("next")
                 else:
                     status = f"{i+1}. "
                 
-                # Create label
-                label = Label(f"{status}{prompt_text}")
+                # Add mode and options indicators
+                mode_indicator = "🔧" if item['mode'] == 'develop' else "🎨"
+                saver_indicator = "💰" if item.get('cost_saver', False) else ""
+                
+                # Create label with full info
+                label = Label(f"{status}{mode_indicator} {prompt_text} {saver_indicator}")
                 queue_item.mount(label)
                 
                 # Make it clickable

@@ -586,7 +586,7 @@ class TerminalPanel(BasePanel):
         """Detect Claude's state from terminal content."""
         # Get the last few lines for analysis
         lines = terminal_content.strip().split('\n')
-        last_lines = lines[-10:] if len(lines) >= 10 else lines
+        last_lines = lines[-20:] if len(lines) >= 20 else lines  # Check more lines
         
         # Check if we recently sent a prompt
         if hasattr(self, '_last_prompt_sent') and self._last_prompt_sent:
@@ -598,28 +598,47 @@ class TerminalPanel(BasePanel):
                     self._prompt_confirmed = True
                     break
         
-        # Check for Claude ready prompt
-        for line in last_lines:
+        # Check for Claude ready prompt - more comprehensive patterns
+        claude_ready = False
+        claude_processing = False
+        
+        for i, line in enumerate(last_lines):
             line_text = line.strip()
             
             # Claude shows "Human: " when ready for input
-            if line_text.endswith("Human:") or line_text == "Human:":
-                self._is_claude_processing = False
-                self._claude_ready = True
-                self.status.update("Status: [green]Ready[/green]")
-                logging.info("Claude is ready - detected Human: prompt")
-                return
+            # Also check for standalone "Human:" on its own line
+            if (line_text.endswith("Human:") or 
+                line_text == "Human:" or 
+                line_text.endswith("Human: ") or
+                (line_text == "" and i > 0 and last_lines[i-1].strip().endswith("Human:"))):
+                claude_ready = True
+                claude_processing = False
+                logging.debug(f"Detected Claude ready pattern: '{line_text}'")
             
             # Check if Claude is responding
-            if line_text.startswith("Claude:") or line_text.startswith("Assistant:"):
-                self._is_claude_processing = True
-                self.status.update("Status: [yellow]Claude is responding...[/yellow]")
-                logging.info("Claude is processing - detected response marker")
-                return
+            elif (line_text.startswith("Claude:") or 
+                  line_text.startswith("Assistant:") or
+                  line_text.startswith("I'll") or
+                  line_text.startswith("I'm") or
+                  line_text.startswith("Let me")):
+                claude_processing = True
+                claude_ready = False
+                logging.debug(f"Detected Claude processing pattern: '{line_text}'")
+        
+        # Update state based on what we found
+        if claude_ready:
+            self._is_claude_processing = False
+            self._claude_ready = True
+            self.status.update("Status: [green]Ready[/green]")
+            logging.info("Claude is ready - detected Human: prompt")
+        elif claude_processing:
+            self._is_claude_processing = True
+            self.status.update("Status: [yellow]Claude is responding...[/yellow]")
+            logging.info("Claude is processing - detected response")
         
         # Check for specific patterns that indicate processing
         full_text = '\n'.join(last_lines).lower()
-        if any(phrase in full_text for phrase in ['thinking', 'analyzing', 'processing', 'loading']):
+        if any(phrase in full_text for phrase in ['thinking', 'analyzing', 'processing', 'loading', 'working on']):
             self._is_claude_processing = True
             logging.debug("Claude appears to be processing based on output content")
     
