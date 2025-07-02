@@ -101,7 +101,7 @@ class BasePanel(Static):
     
     .context-menu {
         width: 20;
-        height: 8;
+        height: 5;
         background: red;
         border: solid white;
         display: none;
@@ -246,8 +246,6 @@ class BasePanel(Static):
         Binding("ctrl+shift+c", "copy_selected", "Copy (Linux/Win)", priority=True, show=False),
         # Add lock toggle shortcut
         Binding("ctrl+l", "toggle_lock", "Lock/Unlock", priority=True, show=True),
-        # Add widget label toggle shortcut
-        Binding("ctrl+shift+l", "toggle_widget_labels", "Toggle Labels", priority=True, show=True),
     ]
     
     def __init__(self, **kwargs):
@@ -258,10 +256,18 @@ class BasePanel(Static):
         self.selection_end: Optional[tuple] = None
         self.is_selecting = False
         self.is_locked = False
-        self.show_widget_labels = False
         self.hovered_widget = None
         self.hover_label = None
         self.widget_label = None
+        
+    def is_morph_mode_active(self) -> bool:
+        """Check if Morph Mode is currently active."""
+        if hasattr(self, 'app') and self.app:
+            # Look for PromptPanel and check if morph mode is active
+            for widget in self.app.query("PromptPanel"):
+                if hasattr(widget, 'morph_mode') and widget.morph_mode:
+                    return True
+        return False
         
     def compose(self) -> ComposeResult:
         """Create the base panel layout with panel name."""
@@ -277,7 +283,6 @@ class BasePanel(Static):
                 with Container(classes="context-menu") as self.context_menu:
                     lock_text = "🔓 Lock" if not self.is_locked else "🔒 Unlock"
                     yield Button(lock_text, classes="context-menu-item", id="lock-btn")
-                    yield Button("🏷️ Show Widget Labels", classes="context-menu-item", id="labels-btn")
         
         # Subclasses should override compose_content to add their content
         if hasattr(self, 'compose_content'):
@@ -404,7 +409,7 @@ class BasePanel(Static):
             # Subclasses can override to implement visual selection
             
         # Handle widget hover detection
-        if self.show_widget_labels:
+        if self.is_morph_mode_active():
             # Use the event coordinates directly
             self._check_widget_hover(event.x, event.y)
             
@@ -428,10 +433,6 @@ class BasePanel(Static):
             event.stop()
         elif event.button.id == "lock-btn":
             self.toggle_lock()
-            self.hide_context_menu()
-            event.stop()
-        elif event.button.id == "labels-btn":
-            self.toggle_widget_labels()
             self.hide_context_menu()
             event.stop()
             
@@ -470,18 +471,6 @@ class BasePanel(Static):
         """Action to toggle lock via keyboard shortcut."""
         self.toggle_lock()
         
-    def action_toggle_widget_labels(self) -> None:
-        """Action to toggle widget labels via keyboard shortcut."""
-        # Toggle widget labels on all panels
-        if hasattr(self, 'app') and self.app:
-            # Iterate through all panels and toggle their labels
-            for panel in self.app.panels.values():
-                if hasattr(panel, 'toggle_widget_labels'):
-                    panel.toggle_widget_labels()
-            
-            # Notify user
-            if hasattr(self.app, 'notify'):
-                self.app.notify("Toggled widget labels", severity="information")
             
     def toggle_lock(self, event=None) -> None:
         """Toggle the lock state of this panel."""
@@ -502,36 +491,6 @@ class BasePanel(Static):
             state = "locked" if self.is_locked else "unlocked"
             self.app.notify(f"Panel {state}", severity="information")
             
-    def toggle_widget_labels(self) -> None:
-        """Toggle the display of widget labels on hover."""
-        self.show_widget_labels = not self.show_widget_labels
-        logging.info(f"Panel {type(self).__name__} widget labels toggled: show_widget_labels={self.show_widget_labels}")
-        
-        # Set can_focus to True to receive mouse events
-        if self.show_widget_labels:
-            self.can_focus = True
-        
-        # If disabling, remove any existing label
-        if not self.show_widget_labels and self.hover_label:
-            self.hover_label.remove()
-            self.hover_label = None
-            self.hovered_widget = None
-        
-        # Update label button text to reflect current state
-        try:
-            labels_btn = self.query_one("#labels-btn", Button)
-            if labels_btn:
-                if self.show_widget_labels:
-                    labels_btn.label = "🏷️ Hide Widget Labels"
-                else:
-                    labels_btn.label = "🏷️ Show Widget Labels"
-        except Exception:
-            pass  # query_one might fail if button doesn't exist
-                
-        # Notify user
-        if hasattr(self, 'app') and hasattr(self.app, 'notify'):
-            state = "enabled" if self.show_widget_labels else "disabled"
-            self.app.notify(f"Widget labels {state}", severity="information")
             
     def get_widget_info(self, widget=None) -> str:
         """Get formatted information about a widget.
@@ -596,8 +555,8 @@ class BasePanel(Static):
     
             
     def _check_widget_hover(self, x: int, y: int) -> None:
-        """Check if mouse is hovering over a widget and show label if enabled."""
-        if not self.show_widget_labels:
+        """Check if mouse is hovering over a widget and show label if in Morph Mode."""
+        if not self.is_morph_mode_active():
             return
             
         # Find the widget at the mouse position within this panel
@@ -828,14 +787,14 @@ class BasePanel(Static):
             
     def on_enter(self, event: Enter) -> None:
         """Handle mouse enter events on widgets."""
-        # Show widget label if enabled
-        if self.show_widget_labels and event.widget != self:
+        # Show widget label if in Morph Mode
+        if self.is_morph_mode_active() and event.widget != self:
             self._show_widget_label(event.widget, 0, 0)
             
     def on_leave(self, event: Leave) -> None:
         """Handle mouse leave events on widgets."""
         # Hide label when leaving a widget
-        if self.show_widget_labels and self.hovered_widget == event.widget:
+        if self.is_morph_mode_active() and self.hovered_widget == event.widget:
             self.hovered_widget = None
             # Clear any notifications (temporary solution)
             # In the future, this would remove the actual floating label

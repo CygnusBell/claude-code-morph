@@ -458,21 +458,7 @@ class PromptPanel(BasePanel):
             self.morph_mode_btn.add_class("active")
             self.app.notify("Morph Mode: ON - Editing the IDE", severity="information")
             
-            # Automatically show widget labels when entering morph mode
-            # This helps users understand the IDE structure they're editing
-            if hasattr(self.app, 'panels'):
-                labels_enabled = False
-                for panel in self.app.panels.values():
-                    if hasattr(panel, 'show_widget_labels') and not panel.show_widget_labels:
-                        # Enable widget labels for this panel
-                        panel.show_widget_labels = True
-                        labels_enabled = True
-                        # Note: We don't call toggle_widget_labels() here as it would toggle back to False
-                        # The show_widget_labels flag is sufficient for the panel to show labels
-                
-                # If we enabled any labels, notify about it
-                if labels_enabled:
-                    self.app.notify("Widget labels enabled to help with IDE editing", severity="information")
+            # Widget labels will automatically show in morph mode via hover detection
         else:
             self.morph_mode_btn.label = "○ Morph Mode"  # Empty circle
             self.morph_mode_btn.remove_class("active")
