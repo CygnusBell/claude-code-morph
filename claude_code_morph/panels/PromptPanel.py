@@ -586,24 +586,6 @@ class PromptPanel(BasePanel):
                 logging.error(f"Queue monitor error: {e}", exc_info=True)
                 await asyncio.sleep(5.0)  # Wait longer on error
             
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        button_id = event.button.id
-        
-        if button_id == "submit-btn":
-            self.submit_prompt()
-        elif button_id == "optimize-btn":
-            self.toggle_cost_saver()
-        elif button_id == "context-saver-btn":
-            self.toggle_context_saver()
-        elif button_id == "clear-btn":
-            self.clear_prompt()
-        elif button_id == "morph-mode-btn":
-            self.toggle_morph_mode()
-        elif button_id == "clear-queue-btn":
-            self.clear_queue()
-        elif button_id == "resume-queue-btn":
-            self.force_process_queue()
     
     def toggle_cost_saver(self) -> None:
         """Toggle cost saver mode."""
@@ -656,7 +638,11 @@ class PromptPanel(BasePanel):
             
     def on_key(self, event) -> None:
         """Handle keyboard shortcuts."""
-        if event.key == "ctrl+enter" or event.key == "shift+enter":
+        # Handle Escape to cancel editing
+        if event.key == "escape" and hasattr(self, '_editing_index') and self._editing_index >= 0:
+            self._cancel_edit()
+            event.stop()
+        elif event.key == "ctrl+enter" or event.key == "shift+enter":
             self.submit_prompt()
         elif event.key == "ctrl+o":
             self.toggle_cost_saver()
@@ -1312,6 +1298,8 @@ Output only the enhanced prompt, nothing else."""
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
         button_id = event.button.id
+        
+        # Handle queue-specific buttons first
         if button_id and button_id.startswith('save-'):
             try:
                 index = int(button_id.split('-')[1])
@@ -1326,8 +1314,23 @@ Output only the enhanced prompt, nothing else."""
                 self._delete_queue_item(index)
             except (ValueError, IndexError):
                 pass
+        # Handle main panel buttons
+        elif button_id == "submit-btn":
+            self.submit_prompt()
+        elif button_id == "optimize-btn":
+            self.toggle_cost_saver()
+        elif button_id == "context-saver-btn":
+            self.toggle_context_saver()
+        elif button_id == "clear-btn":
+            self.clear_prompt()
+        elif button_id == "morph-mode-btn":
+            self.toggle_morph_mode()
+        elif button_id == "clear-queue-btn":
+            self.clear_queue()
+        elif button_id == "resume-queue-btn":
+            self.force_process_queue()
         else:
-            # Pass to parent class for other buttons
+            # Pass to parent class for any other buttons
             super().on_button_pressed(event)
     
     def _delete_queue_item(self, index: int) -> None:
@@ -1355,12 +1358,6 @@ Output only the enhanced prompt, nothing else."""
             except (ValueError, IndexError):
                 pass
     
-    def on_key(self, event: Key) -> None:
-        """Handle key events."""
-        # Handle Escape to cancel editing
-        if event.key == "escape" and self._editing_index >= 0:
-            self._cancel_edit()
-            event.stop()
     
     async def _show_edit_dialog(self, index: int) -> None:
         """Show edit dialog for a queue item."""
