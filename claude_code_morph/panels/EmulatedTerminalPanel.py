@@ -539,6 +539,7 @@ Please make the requested changes to the Claude Code Morph source code."""
             "ctrl+q",       # Quit
             "ctrl+shift+f", # Safe Mode
             "f5",           # Reload All
+            "ctrl+comma",   # Reload All (alternative)
         }
         
         if event.key in app_bindings:

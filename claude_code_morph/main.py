@@ -121,6 +121,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
         Binding("f5", "reload_all", "Reload All", show=True, priority=True),
+        Binding("ctrl+comma", "reload_all", "Reload All", show=True, priority=True),
     ]
     
     def __init__(self):
