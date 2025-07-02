@@ -11,7 +11,6 @@ from textual.containers import Horizontal, Container
 from textual.coordinate import Coordinate
 from rich.console import Group
 from rich.text import Text
-from ..widgets.widget_label import WidgetLabel
 
 # Try to import pyperclip, but fallback if not available
 CLIPBOARD_AVAILABLE = False

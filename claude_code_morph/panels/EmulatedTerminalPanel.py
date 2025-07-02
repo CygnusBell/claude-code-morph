@@ -47,7 +47,7 @@ class EmulatedTerminalPanel(BasePanel):
         padding: 0;
     }
     
-    #emulated-terminal-screen {
+    #terminal-screen {
         height: 1fr;
         background: #0c0c0c;
         color: #f0f0f0;
@@ -58,11 +58,11 @@ class EmulatedTerminalPanel(BasePanel):
         margin: 0;
     }
     
-    #emulated-terminal-screen:focus {
+    #terminal-screen:focus {
         border: none;
     }
     
-    #emulated-terminal-status {
+    #terminal-status {
         height: 1;
         background: #1a1a1a;
         color: #888888;
@@ -102,12 +102,12 @@ class EmulatedTerminalPanel(BasePanel):
                 highlight=False,
                 markup=True,
                 wrap=True,
-                id="emulated-terminal-screen",
+                id="terminal-screen",
                 auto_scroll=True
             )
             yield self.screen_display
             
-            self.status = Static("Status: Initializing...", id="emulated-terminal-status")
+            self.status = Static("Status: Initializing...", id="terminal-status")
             yield self.status
             
     async def on_mount(self) -> None:
