@@ -661,7 +661,7 @@ class PromptPanel(BasePanel):
             self._update_queue_display()
         elif event.key == "enter" and self.prompt_queue:
             # Edit highlighted item
-            self._edit_queue_item(self.highlighted_queue_index)
+            self._start_editing(self.highlighted_queue_index)
         elif event.key == "ctrl+p":
             # Force process queue
             self.force_process_queue()
@@ -1261,14 +1261,16 @@ Output only the enhanced prompt, nothing else."""
         super().on_click(event)
         
         # Check if click is on a queue item label
-        target = self.app.get_widget_at(*event.screen_offset)
-        if target and hasattr(target, 'id') and target.id and target.id.startswith('label-'):
-            # Extract index from label ID
-            try:
-                index = int(target.id.split('-')[1])
-                self._start_editing(index)
-            except (ValueError, IndexError):
-                pass
+        widget_info = self.app.get_widget_at(*event.screen_offset)
+        if widget_info:
+            target, _ = widget_info  # Unpack widget and region
+            if target and hasattr(target, 'id') and target.id and target.id.startswith('label-'):
+                # Extract index from label ID
+                try:
+                    index = int(target.id.split('-')[1])
+                    self._start_editing(index)
+                except (ValueError, IndexError):
+                    pass
     
     def _start_editing(self, index: int) -> None:
         """Start in-place editing of a queue item."""
