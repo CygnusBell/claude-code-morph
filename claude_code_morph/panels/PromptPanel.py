@@ -359,6 +359,11 @@ class PromptPanel(BasePanel):
                 # Action buttons
                 yield Button("Submit", id="submit-btn")
                 yield Button("Clear", id="clear-btn")
+                
+                # Clear Queue button (will be shown/hidden dynamically)
+                self.clear_queue_btn = Button("Clear Queue", id="clear-queue-btn", classes="clear-button")
+                self.clear_queue_btn.display = False
+                yield self.clear_queue_btn
             
             # Prompt queue container
             self.queue_container = ScrollableContainer(classes="prompt-queue-container")
@@ -366,6 +371,26 @@ class PromptPanel(BasePanel):
     
     def on_mount(self) -> None:
         """Initialize the queue display when mounted."""
+        # Check if we have a restored queue from previous session
+        if self.prompt_queue:
+            # Show notification about restored queue
+            old_count = len(self.prompt_queue)
+            self.app.notify(
+                f"Found {old_count} queued prompts from previous session. Click to edit/delete them.", 
+                severity="warning"
+            )
+            logging.info(f"Restored {old_count} prompts in queue from previous session")
+            
+            # Mark queue as paused initially so it doesn't auto-process old prompts
+            self.is_processing = True
+            
+            # Allow manual processing by resetting flag after a delay
+            async def reset_processing():
+                await asyncio.sleep(2.0)
+                self.is_processing = False
+            
+            asyncio.create_task(reset_processing())
+        
         self._update_queue_display()
             
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -380,6 +405,8 @@ class PromptPanel(BasePanel):
             self.clear_prompt()
         elif button_id == "morph-mode-btn":
             self.toggle_morph_mode()
+        elif button_id == "clear-queue-btn":
+            self.clear_queue()
     
     def toggle_cost_saver(self) -> None:
         """Toggle cost saver mode."""
@@ -604,6 +631,15 @@ Output only the enhanced prompt, nothing else."""
         else:
             self.app.notify("Nothing to clear", severity="information")
     
+    def clear_queue(self) -> None:
+        """Clear all items from the prompt queue."""
+        if self.prompt_queue:
+            count = len(self.prompt_queue)
+            self.prompt_queue.clear()
+            self._update_queue_display()
+            self.app.notify(f"Cleared {count} prompts from queue", severity="information")
+            logging.info(f"User cleared {count} prompts from queue")
+    
     
     async def _confirm_clear(self) -> None:
         """Show confirmation dialog for clearing."""
@@ -777,6 +813,10 @@ Output only the enhanced prompt, nothing else."""
         """Update the queue display."""
         if not hasattr(self, 'queue_container'):
             return
+            
+        # Show/hide Clear Queue button based on queue content
+        if hasattr(self, 'clear_queue_btn'):
+            self.clear_queue_btn.display = bool(self.prompt_queue)
             
         # Clear current display
         self.queue_container.remove_children()
@@ -966,6 +1006,14 @@ Output only the enhanced prompt, nothing else."""
         # Restore prompt queue
         if 'prompt_queue' in state:
             self.prompt_queue = state['prompt_queue']
+            # Don't auto-process restored queue
+            if self.prompt_queue:
+                self.is_processing = True
+                # Reset after a delay to allow manual control
+                async def reset():
+                    await asyncio.sleep(3.0)
+                    self.is_processing = False
+                asyncio.create_task(reset())
             
         if 'highlighted_queue_index' in state:
             self.highlighted_queue_index = state['highlighted_queue_index']
