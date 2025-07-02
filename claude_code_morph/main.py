@@ -120,7 +120,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+l", "load_workspace", "Load Workspace"),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
-        Binding("f5", "reload_all", "Reload All", show=True),
+        Binding("f5", "reload_all", "Reload All", show=True, priority=True),
     ]
     
     def __init__(self):
@@ -162,6 +162,13 @@ class ClaudeCodeMorph(App):
         from .widgets.resizable import ResizableContainer
         yield ResizableContainer(id="main-container")
         yield Footer()
+        
+    def on_key(self, event) -> None:
+        """Debug key events."""
+        logging.debug(f"App received key: {event.key}")
+        if event.key == "f5":
+            logging.info("F5 key detected in app!")
+            # Don't stop the event, let it continue to action
         
     def on_mount(self) -> None:
         """Called when the app starts."""
@@ -518,6 +525,10 @@ class ClaudeCodeMorph(App):
         """Reload all panels by reloading their modules."""
         logging.info("User requested reload all via F5")
         self.notify("Reloading all panels...", severity="information")
+        
+        # Also log to console for debugging
+        import sys
+        print("\n[F5 PRESSED] Reloading all panels...", file=sys.stderr)
         
         async def _do_reload():
             try:

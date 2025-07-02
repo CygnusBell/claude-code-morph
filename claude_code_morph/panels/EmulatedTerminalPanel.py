@@ -543,6 +543,8 @@ Please make the requested changes to the Claude Code Morph source code."""
         
         if event.key in app_bindings:
             # Let the event bubble up to the app
+            logging.info(f"EmulatedTerminalPanel: Letting {event.key} bubble up to app")
+            # Don't stop the event, just return to let it propagate
             return
             
         # Fast dictionary lookup for special keys

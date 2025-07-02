@@ -48,6 +48,7 @@ class PromptPanel(BasePanel):
     ]
     
     CSS = BasePanel.DEFAULT_CSS + """
+    /* CSS Updated: 2025-07-02 22:47 - Queue items now height: 1 */
     PromptPanel {
         layout: vertical;
         height: 99%;
@@ -198,7 +199,7 @@ class PromptPanel(BasePanel):
     /* Prompt queue styles */
     PromptPanel .prompt-queue-container {
         height: 1fr;
-        min-height: 5;
+        min-height: 3;
         margin: 0;
         padding: 0;
         background: $surface;
@@ -208,11 +209,11 @@ class PromptPanel(BasePanel):
     
     PromptPanel .prompt-queue-item {
         layout: horizontal;
-        height: 3;
-        padding: 0 1;
+        height: 1;
+        padding: 0 0.5;
         margin: 0;
         background: $panel;
-        border-bottom: solid $primary-darken-2;
+        border-bottom: thin $primary-darken-3;
         align: center middle;
     }
     
@@ -247,7 +248,7 @@ class PromptPanel(BasePanel):
     
     PromptPanel .queue-item-label {
         width: 1fr;
-        padding: 0 1;
+        padding: 0 0.5;
         text-style: normal;
         overflow: hidden ellipsis;
     }
