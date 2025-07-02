@@ -127,6 +127,10 @@ class TerminalWidget(Static):
         if hasattr(self.parent, '_detect_claude_state'):
             self.parent._detect_claude_state(content)
         
+        # Track activity
+        if hasattr(self.parent, '_track_activity'):
+            self.parent._track_activity(content)
+        
         # Log for debugging if we see interesting content
         if any(keyword in content.lower() for keyword in ['hello', 'claude:', 'error', 'response']):
             logging.info(f"Terminal shows interesting content: {content[-200:]}")
@@ -228,6 +232,8 @@ class TerminalPanel(BasePanel):
         self.terminal_widget: Optional[TerminalWidget] = None
         self._is_claude_processing = False  # Track if Claude is processing
         self._claude_ready = False  # Track if Claude has shown initial prompt
+        self._last_activity_time = 0  # Track last terminal activity
+        self._last_content_hash = 0  # Track content changes
         
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
@@ -577,10 +583,37 @@ class TerminalPanel(BasePanel):
         
     def is_claude_processing(self) -> bool:
         """Check if Claude is currently processing a request."""
+        import time
+        
         # If Claude hasn't started yet, it's considered "processing"
         if not self._claude_ready:
             return True
+        
+        # Check if there's recent activity (within last 2 seconds)
+        if self._last_activity_time > 0:
+            time_since_activity = time.time() - self._last_activity_time
+            if time_since_activity < 2.0:
+                # Recent activity suggests Claude might be processing
+                return True
+            elif time_since_activity > 5.0:
+                # No activity for 5+ seconds, probably idle
+                return False
+        
+        # Fall back to state-based detection
         return self._is_claude_processing
+    
+    def _track_activity(self, terminal_content: str) -> None:
+        """Track terminal activity for better state detection."""
+        import time
+        
+        # Calculate content hash
+        content_hash = hash(terminal_content)
+        
+        # If content changed, update activity time
+        if content_hash != self._last_content_hash:
+            self._last_activity_time = time.time()
+            self._last_content_hash = content_hash
+            logging.debug(f"Terminal activity detected at {self._last_activity_time}")
     
     def _detect_claude_state(self, terminal_content: str) -> None:
         """Detect Claude's state from terminal content."""

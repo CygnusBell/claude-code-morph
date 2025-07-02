@@ -74,7 +74,7 @@ class PromptPanel(BasePanel):
     PromptPanel #prompt-input {
         height: 1fr;
         min-height: 10;
-        margin: 1;
+        margin: 0 1;
         padding: 1;
         background: $surface;
         border: solid $primary;
@@ -85,7 +85,7 @@ class PromptPanel(BasePanel):
         height: auto;
         min-height: 3;
         margin: 0;
-        padding: 0 1;
+        padding: 0;
         background: $panel;
     }
     
@@ -223,7 +223,7 @@ class PromptPanel(BasePanel):
         border: solid $accent;
     }
     
-    PromptPanel .prompt-queue-item.processing {
+    PromptPanel .prompt-queue-item.sending {
         background: $warning-darken-3;
         border-left: thick $warning;
     }
@@ -231,6 +231,11 @@ class PromptPanel(BasePanel):
     PromptPanel .prompt-queue-item.next {
         background: $success-darken-3;
         border-left: thick $success;
+    }
+    
+    PromptPanel .prompt-queue-item.failed {
+        background: $error-darken-3;
+        border-left: thick $error;
     }
     
     PromptPanel .prompt-queue-item Label {
@@ -479,7 +484,7 @@ class PromptPanel(BasePanel):
                 # Watchdog: Check if processor has been stuck for too long
                 if self.is_processing and self._last_process_time > 0:
                     time_since_last_process = time.time() - self._last_process_time
-                    if time_since_last_process > 180:  # 3 minutes timeout
+                    if time_since_last_process > 60:  # 1 minute timeout (reduced from 3)
                         logging.warning(f"Queue processor appears stuck (no activity for {time_since_last_process:.0f}s), resetting...")
                         self.is_processing = False
                         self._last_process_time = 0
@@ -622,13 +627,21 @@ class PromptPanel(BasePanel):
         self.prompt_history.append(prompt)
         self.history_index = len(self.prompt_history)
         
-        # Add to queue
+        # Add to queue with better tracking
+        import uuid
+        import time
         mode = getattr(self, 'selected_mode', 'develop')
-        self.prompt_queue.append({
+        queue_item = {
+            'id': str(uuid.uuid4()),
             'prompt': prompt,
             'mode': mode,
-            'cost_saver': self.cost_saver_enabled
-        })
+            'cost_saver': self.cost_saver_enabled,
+            'status': 'pending',  # pending, sending, sent, failed
+            'created_at': time.time(),
+            'attempts': 0,
+            'last_error': None
+        }
+        self.prompt_queue.append(queue_item)
         
         # Update queue display
         self._update_queue_display()
@@ -902,101 +915,102 @@ Output only the enhanced prompt, nothing else."""
         return None
     
     async def _process_queue(self) -> None:
-        """Process prompts from the queue."""
-        if self.is_processing or not self.prompt_queue:
+        """Process prompts from the queue with atomic operations."""
+        if self.is_processing:
+            logging.warning("Queue processor already running, skipping")
             return
             
         self.is_processing = True
         
         try:
             import time
-            self._last_process_time = time.time()  # Set watchdog timer
+            self._last_process_time = time.time()
             processed_count = 0
             
-            while self.prompt_queue:
-                logging.info(f"Processing queue with {len(self.prompt_queue)} items")
+            while True:
+                # Find next pending item
+                pending_item = None
+                for item in self.prompt_queue:
+                    if item.get('status') == 'pending':
+                        pending_item = item
+                        break
                 
-                # First, wait for Claude to become idle before processing
-                logging.info("Waiting for Claude to become idle...")
-                await self._wait_for_claude_idle()
-                logging.info("Claude is idle, processing next prompt")
-                
-                # Double-check we still have items (might have been deleted while waiting)
-                if not self.prompt_queue:
+                if not pending_item:
+                    logging.info("No pending items in queue")
                     break
                 
-                # Get the first prompt
-                item = self.prompt_queue[0]
-                prompt = item['prompt']
-                mode = item['mode']
-                cost_saver = item['cost_saver']
+                logging.info(f"Processing item {pending_item['id'][:8]}... from queue of {len(self.prompt_queue)} items")
                 
-                logging.info(f"Processing prompt: {prompt[:50]}...")
-                self.app.notify(f"Processing prompt {processed_count + 1}/{len(self.prompt_queue) + processed_count}", severity="information")
-                
-                # Update display to show processing
+                # Mark as sending ATOMICALLY before any async operations
+                pending_item['status'] = 'sending'
+                pending_item['attempts'] += 1
                 self._update_queue_display()
+                
+                # Wait for Claude to be idle
+                logging.info("Waiting for Claude to become idle...")
+                try:
+                    await self._wait_for_claude_idle()
+                except Exception as e:
+                    logging.error(f"Error waiting for Claude idle: {e}")
+                    pending_item['status'] = 'failed'
+                    pending_item['last_error'] = str(e)
+                    continue
+                
+                # Extract item data
+                prompt = pending_item['prompt']
+                mode = pending_item['mode']
+                cost_saver = pending_item.get('cost_saver', False)
                 
                 # Process with cost saver if enabled
                 if cost_saver:
-                    self.app.notify("Optimizing prompt with Token Saver...", severity="information")
                     try:
                         prompt = await self._call_optimizer(prompt)
                     except Exception as e:
                         logging.error(f"Failed to optimize prompt: {e}")
-                        self.app.notify(f"Token Saver failed: {e}", severity="warning")
                 
                 # Send to terminal
-                logging.info(f"Sending prompt to terminal: mode={mode}, has_on_submit={bool(self.on_submit)}")
+                send_success = False
                 try:
+                    logging.info(f"Sending prompt to terminal: {prompt[:50]}...")
                     if self.on_submit:
                         await self._async_submit(prompt, mode)
                     else:
                         await self._send_to_terminal(prompt, mode)
-                    
-                    # Successfully sent
-                    processed_count += 1
-                    
+                    send_success = True
                 except Exception as e:
                     logging.error(f"Failed to send prompt: {e}")
+                    pending_item['last_error'] = str(e)
                     self.app.notify(f"Failed to send prompt: {e}", severity="error")
-                    # Continue with next prompt instead of breaking
                 
-                # Wait longer to ensure the prompt is fully sent and processed
-                await asyncio.sleep(2.0)
-                
-                # Wait for Claude to start processing before removing from queue
-                # This prevents removing items before they're actually being processed
-                logging.info("Waiting for Claude to start processing the prompt...")
-                start_wait = time.time()
-                max_wait_for_processing = 10.0  # 10 seconds max
-                
-                while time.time() - start_wait < max_wait_for_processing:
-                    terminal = None
-                    for panel in self.app.panels.values():
-                        if hasattr(panel, 'is_claude_processing'):
-                            terminal = panel
-                            break
+                if send_success:
+                    # Mark as sent and remove from queue
+                    pending_item['status'] = 'sent'
+                    self.prompt_queue.remove(pending_item)
+                    processed_count += 1
+                    logging.info(f"Successfully sent and removed item {pending_item['id'][:8]}")
                     
-                    if terminal and terminal.is_claude_processing():
-                        logging.info("Claude started processing the prompt")
-                        break
-                        
-                    await asyncio.sleep(0.5)
+                    # Update watchdog
+                    self._last_process_time = time.time()
+                    
+                    # Wait before processing next item
+                    await asyncio.sleep(3.0)
                 else:
-                    logging.warning("Claude didn't start processing within timeout")
+                    # Mark as failed
+                    pending_item['status'] = 'failed'
+                    
+                    # Retry logic
+                    if pending_item['attempts'] < 3:
+                        # Reset to pending for retry
+                        await asyncio.sleep(5.0)
+                        pending_item['status'] = 'pending'
+                        logging.info(f"Will retry item {pending_item['id'][:8]} (attempt {pending_item['attempts']}/3)")
+                    else:
+                        # Too many attempts, remove from queue
+                        self.prompt_queue.remove(pending_item)
+                        logging.error(f"Giving up on item {pending_item['id'][:8]} after 3 attempts")
+                        self.app.notify(f"Failed to send prompt after 3 attempts", severity="error")
                 
-                # Remove from queue only after confirming Claude is processing
-                self.prompt_queue.pop(0)
                 self._update_queue_display()
-                
-                # Update watchdog timer
-                self._last_process_time = time.time()
-                
-                logging.info(f"Prompt processed, {len(self.prompt_queue)} items remaining")
-                
-                # Give Claude time to process before sending next prompt
-                await asyncio.sleep(3.0)
             
             # Notify completion
             if processed_count > 0:
@@ -1085,11 +1099,15 @@ Output only the enhanced prompt, nothing else."""
                 if len(prompt_text) > 80:
                     prompt_text = prompt_text[:77] + "..."
                 
-                # Add status indicator with more detail
-                if i == 0 and self.is_processing:
-                    status = "⚡ Processing: "
-                    queue_item.add_class("processing")
-                elif i == 0:
+                # Add status indicator based on item status
+                item_status = item.get('status', 'pending')
+                if item_status == 'sending':
+                    status = "⚡ Sending: "
+                    queue_item.add_class("sending")
+                elif item_status == 'failed':
+                    status = "❌ Failed: "
+                    queue_item.add_class("failed")
+                elif item_status == 'pending' and i == 0:
                     status = "▶️ Next: "
                     queue_item.add_class("next")
                 else:
