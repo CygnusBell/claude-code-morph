@@ -322,15 +322,21 @@ class ClaudeCodeMorph(App):
         """Create the main layout."""
         yield Header()
         
+        from .widgets.resizable import ResizableContainer
+        
+        # Store references to containers
+        self.main_container = ResizableContainer(id="main-container")
+        self.morph_container = ResizableContainer(id="morph-container")
+        
         # Create the tabbed content with context managers
         # This is the proper way to use TabbedContent in Textual
         with TabbedContent("Main", "Morph", id="tab-container"):
             with TabPane("Main", id="main-tab"):
-                # Placeholder - will be replaced with ResizableContainer
-                yield Static("Loading Main tab...", id="main-placeholder")
+                # Yield containers directly in TabPane
+                yield self.main_container
             with TabPane("Morph", id="morph-tab"):
-                # Placeholder - will be replaced with ResizableContainer
-                yield Static("Loading Morph tab...", id="morph-placeholder")
+                # Yield containers directly in TabPane
+                yield self.morph_container
                 
         yield Footer()
         
@@ -350,9 +356,6 @@ class ClaudeCodeMorph(App):
         """Called when the app starts."""
         logging.info("=== on_mount called ===")
         
-        # Create and mount containers to tabs
-        await self._setup_tab_containers()
-        
         # Hot-reloading disabled - use F5 for manual reload
         # try:
         #     self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
@@ -361,79 +364,30 @@ class ClaudeCodeMorph(App):
         #     logging.warning(f"Could not start file watcher for hot-reloading: {e}")
         #     # Continue without hot-reloading
         
-        # Check for existing session
-        session_info = self.session_manager.get_session_info()
-        if session_info:
-            logging.info(f"Found session info: {session_info}")
-            self.notify(f"Found session from {session_info.get('saved_at', 'unknown time')}")
-            # Load session after workspace with a longer delay to ensure tabs are ready
-            logging.info("Scheduling _load_with_session")
-            # Use call_after_refresh to ensure the UI is ready
-            self.call_after_refresh(self._trigger_load_with_session)
-        else:
-            logging.info("No session found, loading default workspace")
-            # Skip prompt and load default workspace directly
-            logging.info("Scheduling load_workspace_file")
-            # Use call_after_refresh to ensure the UI is ready
-            self.call_after_refresh(self._trigger_default_load)
+        # Load workspace immediately
+        try:
+            # Check for existing session
+            session_info = self.session_manager.get_session_info()
+            if session_info:
+                logging.info(f"Found session info: {session_info}")
+                self.notify(f"Found session from {session_info.get('saved_at', 'unknown time')}")
+                # Load with session
+                await self._load_with_session()
+            else:
+                logging.info("No session found, loading default workspace")
+                # Load default workspace
+                await self.load_workspace_file("default.yaml")
+                
+            # Connect the panels after loading
+            self._connect_panels()
             
-        # Connect the panels after loading with a longer delay to ensure panels are ready
-        self.call_later(lambda: self.set_timer(1.0, self._connect_panels))
+        except Exception as e:
+            logging.error(f"Error during mount: {e}", exc_info=True)
+            self.notify(f"Error loading workspace: {e}", severity="error")
         
         # Start auto-save timer (30 seconds)
         self._start_auto_save()
     
-    def _trigger_load_with_session(self):
-        """Trigger the async load_with_session method."""
-        logging.info("_trigger_load_with_session called")
-        asyncio.create_task(self._load_with_session())
-    
-    def _trigger_default_load(self):
-        """Trigger the async load_workspace_file method."""
-        logging.info("_trigger_default_load called")
-        asyncio.create_task(self.load_workspace_file("default.yaml"))
-        
-    async def _setup_tab_containers(self) -> None:
-        """Set up the containers for each tab."""
-        try:
-            from .widgets.resizable import ResizableContainer
-            
-            # Create containers
-            self.main_container = ResizableContainer(id="main-container")
-            self.morph_container = ResizableContainer(id="morph-container")
-            
-            # Get placeholders
-            main_placeholder = self.query_one("#main-placeholder")
-            morph_placeholder = self.query_one("#morph-placeholder")
-            
-            # Get the tab panes (they were created by TabbedContent)
-            tabbed = self.query_one("#tab-container", TabbedContent)
-            
-            # Access the internal tab panes
-            # TabbedContent creates TabPane widgets with IDs like "tab-1", "tab-2"
-            tabs = list(tabbed.query(TabPane))
-            logging.info(f"Found {len(tabs)} tab panes")
-            
-            if len(tabs) >= 2:
-                main_tab = tabs[0]  # First tab is Main
-                morph_tab = tabs[1]  # Second tab is Morph
-                
-                # Remove placeholders and mount containers
-                if main_placeholder and main_tab:
-                    await main_placeholder.remove()
-                    await main_tab.mount(self.main_container)
-                    logging.info("Mounted main_container to main tab")
-                    
-                if morph_placeholder and morph_tab:
-                    await morph_placeholder.remove()
-                    await morph_tab.mount(self.morph_container)
-                    logging.info("Mounted morph_container to morph tab")
-            else:
-                logging.error(f"Expected 2 tabs but found {len(tabs)}")
-                
-        except Exception as e:
-            logging.error(f"Error setting up tab containers: {e}", exc_info=True)
-            self.notify(f"Error setting up tabs: {e}", severity="error")
         
     async def startup_prompt(self) -> None:
         """Show startup prompt to user."""
@@ -543,6 +497,22 @@ class ClaudeCodeMorph(App):
         
         # Force container to recalculate layout
         container.refresh(layout=True, repaint=True)
+        
+        # Also refresh the tab pane that contains this container
+        try:
+            # Find the tab pane that contains this container
+            tabbed = self.query_one("#tab-container", TabbedContent)
+            # Get all tab panes
+            tab_panes = list(tabbed.query(TabPane))
+            for tab_pane in tab_panes:
+                if container in tab_pane.children:
+                    logging.info(f"Refreshing tab pane: {tab_pane.id}")
+                    tab_pane.refresh(layout=True, repaint=True)
+            tabbed.refresh(layout=True, repaint=True)
+            # Force full app refresh
+            self.refresh(layout=True, repaint=True)
+        except Exception as e:
+            logging.warning(f"Could not refresh tab pane: {e}")
                 
     async def load_minimal_layout(self) -> None:
         """Load minimal layout with just terminal panel."""

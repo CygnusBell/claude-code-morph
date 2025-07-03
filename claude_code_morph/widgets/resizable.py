@@ -270,7 +270,7 @@ class ResizableContainer(Container):
         """Apply the current panel sizes to the actual widgets."""
         logging.info(f"_apply_sizes called - panels: {len(self.panels)}, sizes: {self.panel_sizes}")
         if not self.panels or not self.panel_sizes:
-            logging.warning("_apply_sizes: No panels or panel_sizes")
+            logging.info("_apply_sizes: No panels or panel_sizes yet - container is empty")
             return
             
         # Get all panel wrappers
