@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Type
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll, Container
-from textual.widgets import Header, Footer, Static
+from textual.widgets import Header, Footer, Static, TabbedContent, TabPane
 from textual.binding import Binding
 from rich.console import Console
 from rich.prompt import Prompt
@@ -113,6 +113,37 @@ class ClaudeCodeMorph(App):
     #terminal-output {
         background: #1e1e1e;
     }
+    
+    #tab-container {
+        height: 100%;
+    }
+    
+    TabbedContent {
+        background: $surface;
+    }
+    
+    TabPane {
+        height: 100%;
+        padding: 0;
+    }
+    
+    Tabs {
+        height: 3;
+        background: $panel;
+    }
+    
+    Tab {
+        padding: 0 2;
+    }
+    
+    Tab:hover {
+        text-style: bold;
+    }
+    
+    Tab.-active {
+        background: $primary;
+        text-style: bold;
+    }
     """
     
     BINDINGS = [
@@ -121,6 +152,9 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+shift+f", "launch_safe_mode", "Fix (Safe Mode)"),
         Binding("ctrl+t", "reload_all", "Reload All", show=True, priority=True),
+        Binding("ctrl+tab", "switch_tab", "Switch Tab", show=False),
+        Binding("ctrl+1", "main_tab", "Main Tab", show=False),
+        Binding("ctrl+2", "morph_tab", "Morph Tab", show=False),
     ]
     
     def __init__(self):
@@ -145,6 +179,11 @@ class ClaudeCodeMorph(App):
         self.session_manager = SessionManager()
         self._auto_save_timer = None
         
+        # Track morph tab state
+        self.morph_tab_activated = False
+        self.main_panels: Dict[str, object] = {}
+        self.morph_panels: Dict[str, object] = {}
+        
     def on_parser_error(self, event) -> None:
         """Handle CSS parser errors."""
         logging.error(f"CSS Parser Error: {event}")
@@ -160,7 +199,13 @@ class ClaudeCodeMorph(App):
         """Create the main layout."""
         yield Header()
         from .widgets.resizable import ResizableContainer
-        yield ResizableContainer(id="main-container")
+        
+        with TabbedContent(id="tab-container"):
+            with TabPane("Main", id="main-tab"):
+                yield ResizableContainer(id="main-container")
+            with TabPane("Morph", id="morph-tab"):
+                yield ResizableContainer(id="morph-container")
+                
         yield Footer()
         
     def on_key(self, event) -> None:
@@ -278,7 +323,7 @@ class ClaudeCodeMorph(App):
         }
         await self.load_workspace(config)
         
-    async def add_panel(self, panel_type: str, panel_id: str, params: dict) -> None:
+    async def add_panel(self, panel_type: str, panel_id: str, params: dict, container=None) -> None:
         """Dynamically load and add a panel to the layout."""
         try:
             # Import panel module
@@ -312,8 +357,9 @@ class ClaudeCodeMorph(App):
                 self.notify(f"CSS Error: {e}", severity="error")
             
             # Add to layout
-            from .widgets.resizable import ResizableContainer
-            container = self.query_one("#main-container", ResizableContainer)
+            if container is None:
+                from .widgets.resizable import ResizableContainer
+                container = self.query_one("#main-container", ResizableContainer)
             await container.mount(panel)
             
             # Store reference
@@ -555,6 +601,72 @@ class ClaudeCodeMorph(App):
         
         # Schedule the async reload
         self.call_later(lambda: asyncio.create_task(_do_reload()))
+    
+    def action_switch_tab(self) -> None:
+        """Switch between Main and Morph tabs."""
+        tabs = self.query_one("#tab-container", TabbedContent)
+        if tabs.active == "main-tab":
+            tabs.active = "morph-tab"
+            self._activate_morph_tab()
+        else:
+            tabs.active = "main-tab"
+    
+    def action_main_tab(self) -> None:
+        """Switch to Main tab."""
+        tabs = self.query_one("#tab-container", TabbedContent)
+        tabs.active = "main-tab"
+    
+    def action_morph_tab(self) -> None:
+        """Switch to Morph tab."""
+        tabs = self.query_one("#tab-container", TabbedContent)
+        tabs.active = "morph-tab"
+        self._activate_morph_tab()
+    
+    def _activate_morph_tab(self) -> None:
+        """Initialize morph tab on first activation."""
+        if not self.morph_tab_activated:
+            self.morph_tab_activated = True
+            # Load workspace into morph container
+            self.call_later(lambda: asyncio.create_task(self._load_morph_workspace()))
+    
+    async def _load_morph_workspace(self) -> None:
+        """Load workspace configuration into morph tab."""
+        # Load terminal panel into morph container
+        from .widgets.resizable import ResizableContainer
+        container = self.query_one("#morph-container", ResizableContainer)
+        
+        # Create terminal panel with morph source directory
+        panel_params = {
+            "working_directory": str(self.morph_source.parent),
+            "auto_start": True
+        }
+        
+        # Create and mount the terminal panel
+        try:
+            # Import panel module
+            module_path = self.panels_dir / "TerminalPanel.py"
+            spec = importlib.util.spec_from_file_location("TerminalPanel", module_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            # Create panel instance
+            panel_class = getattr(module, "TerminalPanel")
+            panel = panel_class(**panel_params)
+            panel.id = "morph_terminal"
+            panel.classes = "panel"
+            
+            # Mount to morph container
+            await container.mount(panel)
+            
+            # Store reference in morph_panels
+            self.morph_panels["morph_terminal"] = panel
+            
+            self.notify("Morph tab initialized with Claude Code Morph source directory")
+            
+        except Exception as e:
+            self.notify(f"Error loading morph terminal: {e}", severity="error")
+            logging.error(f"Error loading morph terminal: {e}")
+    
     
     def _connect_panels(self) -> None:
         """Connect the prompt panel to the terminal panel."""

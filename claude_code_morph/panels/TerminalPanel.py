@@ -221,10 +221,12 @@ class TerminalPanel(BasePanel):
         Binding("escape", "pass_through_escape", "Pass Escape", priority=True),
     ]
     
-    def __init__(self, **kwargs):
+    def __init__(self, working_directory: Optional[str] = None, auto_start: bool = True, **kwargs):
         """Initialize the terminal panel."""
         super().__init__(**kwargs)
-        self._init_params = {}
+        self._init_params = {"working_directory": working_directory, "auto_start": auto_start}
+        self.working_directory = working_directory or os.getcwd()
+        self.auto_start = auto_start
         self.pty_master: Optional[int] = None
         self.pty_pid: Optional[int] = None
         self.read_thread: Optional[threading.Thread] = None
@@ -253,10 +255,17 @@ class TerminalPanel(BasePanel):
             
     async def on_mount(self) -> None:
         """Called when panel is mounted."""
-        await self.start_claude_cli()
+        if self.auto_start:
+            await self.start_claude_cli()
+        else:
+            self.status.update("Status: [yellow]Not started (manual start required)[/yellow]")
             
     async def start_claude_cli(self) -> None:
         """Start Claude CLI in a pseudo-terminal."""
+        # Don't start if already running
+        if self.running:
+            return
+            
         try:
             # Get terminal size
             rows = self.terminal_widget.rows if self.terminal_widget else 50
@@ -266,6 +275,9 @@ class TerminalPanel(BasePanel):
             pid, master = pty.fork()
             
             if pid == 0:  # Child process
+                # Change to the working directory
+                os.chdir(self.working_directory)
+                
                 # Set up the environment
                 os.environ['TERM'] = 'xterm-256color'
                 os.environ['LINES'] = str(rows)
@@ -408,14 +420,13 @@ class TerminalPanel(BasePanel):
         self.pty_pid = None
         self.running = False
         
-    async def send_prompt(self, prompt: str, mode: str = "develop") -> None:
+    async def send_prompt(self, prompt: str) -> None:
         """Send a prompt to Claude CLI.
         
         Args:
             prompt: The user's prompt
-            mode: Either 'develop' or 'morph'
         """
-        logging.info(f"send_prompt called with: {prompt[:100]}... mode={mode}")
+        logging.info(f"send_prompt called with: {prompt[:100]}...")
         
         if not self.running or self.pty_master is None:
             if self.terminal_widget:
@@ -426,8 +437,8 @@ class TerminalPanel(BasePanel):
         self._is_claude_processing = True
         self.status.update("Status: [yellow]Sending prompt...[/yellow]")
         
-        # Process based on mode
-        processed_prompt = self._process_prompt_with_mode(prompt, mode)
+        # Use prompt as-is
+        processed_prompt = prompt
         
         # Store the prompt for confirmation checking
         self._last_prompt_sent = processed_prompt
@@ -496,16 +507,6 @@ class TerminalPanel(BasePanel):
         if self.terminal_widget:
             self.terminal_widget.refresh_display()
             
-    def _process_prompt_with_mode(self, prompt: str, mode: str) -> str:
-        """Process prompt based on the selected mode."""
-        if mode.lower() == 'morph':
-            morph_dir = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute()
-            morph_context = f"\n\n[IMPORTANT: This is a 'morph' mode command. Please work on the Claude Code Morph source files located at {morph_dir}, NOT the current working directory. The user wants to modify the IDE itself.]"
-            logging.info(f"Morph mode active for: {prompt}")
-            return prompt + morph_context
-        
-        logging.info(f"Develop mode active for: {prompt}")
-        return prompt
         
     def action_interrupt(self) -> None:
         """Send interrupt signal to Claude CLI."""
