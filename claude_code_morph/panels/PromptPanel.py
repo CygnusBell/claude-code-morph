@@ -198,8 +198,9 @@ class PromptPanel(BasePanel):
     
     /* Prompt queue styles */
     PromptPanel .prompt-queue-container {
-        height: 1fr;
-        min-height: 3;
+        height: auto;
+        max-height: 5;
+        min-height: 2;
         margin: 0;
         padding: 0;
         background: $surface;
