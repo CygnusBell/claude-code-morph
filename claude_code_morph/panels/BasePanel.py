@@ -682,7 +682,8 @@ class BasePanel(Static):
         # For now, use notifications to verify the hover detection is working
         logging.info(f"Showing widget label: {label_text}")
         if hasattr(self, 'app') and hasattr(self.app, 'notify'):
-            self.app.notify(label_text, severity="information", timeout=3)
+            # Use a shorter timeout so notifications don't stack up
+            self.app.notify(label_text, severity="information", timeout=1)
             
         # TODO: Implement actual floating label widget
         # self.hover_label = WidgetLabel(label_text, auto_hide_seconds=0)
