@@ -4,7 +4,7 @@ import os
 import logging
 from typing import Optional, Callable, Dict, Any
 from textual.app import ComposeResult
-from textual.containers import Vertical, Horizontal, Center, Middle, Grid, ScrollableContainer
+from textual.containers import Vertical, Horizontal, Center, Middle, Grid, ScrollableContainer, Container
 from textual.widgets import Static, TextArea, Button, Label, Select, Input
 from textual.reactive import reactive
 from textual.widgets import OptionList
