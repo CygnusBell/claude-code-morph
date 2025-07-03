@@ -607,7 +607,7 @@ class BasePanel(Static):
         check_widget_at_position(self)
         
         # Sort by depth (deepest first) and pick the most specific widget
-        candidates.sort(reverse=True)
+        candidates.sort(key=lambda x: x[0], reverse=True)
         
         # Debug: log candidates
         if candidates:
