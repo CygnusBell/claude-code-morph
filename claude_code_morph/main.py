@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Type
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll, Container
-from textual.widgets import Header, Footer, Static, TabbedContent, TabPane
+from textual.widgets import Header, Footer, Static, TabbedContent, TabPane, ContentSwitcher
 from textual.binding import Binding
 from rich.console import Console
 from rich.prompt import Prompt
@@ -58,6 +58,7 @@ class ClaudeCodeMorph(App):
         height: 1fr;
         width: 100%;
         min-height: 20;
+        layout: vertical;
     }
     
     Button {
@@ -98,24 +99,27 @@ class ClaudeCodeMorph(App):
         height: 100%;
         width: 100%;
         layout: vertical;
+        padding: 0;
+        margin: 0;
     }
     
-    TabPane > ResizableContainer {
-        height: 1fr;
+    TabPane > * {
+        height: 1fr !important;
         width: 100%;
     }
     
     ContentSwitcher {
-        height: 1fr;
+        height: 1fr !important;
         width: 100%;
     }
     
     TabbedContent > ContentSwitcher {
-        height: 1fr;
+        height: 1fr !important;
     }
     
     TabbedContent ContentTabs {
-        height: auto;
+        height: 3;
+        dock: top;
     }
     
     .panel-container {
@@ -406,12 +410,60 @@ class ClaudeCodeMorph(App):
             logging.info("=== Widget tree after loading ===")
             self._log_widget_tree()
             
+            # Check tab visibility and container sizes
+            logging.info("=== Checking tab visibility after loading ===")
+            try:
+                tabbed = self.query_one("#tab-container", TabbedContent)
+                logging.info(f"TabbedContent active: {tabbed.active}")
+                logging.info(f"TabbedContent size: {tabbed.size}")
+                logging.info(f"TabbedContent region: {tabbed.region}")
+                
+                # Check ContentSwitcher
+                content_switcher = tabbed.query_one(ContentSwitcher)
+                logging.info(f"ContentSwitcher size: {content_switcher.size}")
+                logging.info(f"ContentSwitcher region: {content_switcher.region}")
+                
+                # Check TabPane
+                main_tab = tabbed.query_one("#main-tab", TabPane)
+                logging.info(f"Main TabPane size: {main_tab.size}")
+                logging.info(f"Main TabPane region: {main_tab.region}")
+                logging.info(f"Main TabPane visible: {main_tab.visible}")
+                logging.info(f"Main TabPane display: {main_tab.display}")
+                
+                # Check main container
+                logging.info(f"Main container size: {self.main_container.size}")
+                logging.info(f"Main container region: {self.main_container.region}")
+                logging.info(f"Main container visible: {self.main_container.visible}")
+                logging.info(f"Main container display: {self.main_container.display}")
+                logging.info(f"Main container children: {len(self.main_container.children)}")
+                
+                # Check actual panel sizes
+                for i, child in enumerate(self.main_container.children):
+                    logging.info(f"Container child {i}: {child} - size: {child.size}, region: {child.region}")
+                
+                # Force refresh and apply sizes
+                self.main_container.refresh(layout=True)
+                tabbed.refresh(layout=True)
+                
+                # Manually trigger size application for ResizableContainer after refresh
+                from .widgets.resizable import ResizableContainer
+                if isinstance(self.main_container, ResizableContainer):
+                    logging.info("Scheduling _apply_sizes on main container")
+                    self.call_after_refresh(self.main_container._apply_sizes)
+                
+            except Exception as e:
+                logging.error(f"Error checking tab visibility: {e}", exc_info=True)
+            
         except Exception as e:
             logging.error(f"Error during mount: {e}", exc_info=True)
             self.notify(f"Error loading workspace: {e}", severity="error")
         
         # Start auto-save timer (30 seconds)
         self._start_auto_save()
+        
+        # Schedule a full refresh after a short delay to ensure everything is laid out
+        self.set_timer(0.5, self._force_full_refresh)
+        
         logging.info("=== on_mount completed ===")
     
         
@@ -1063,6 +1115,14 @@ class ClaudeCodeMorph(App):
         if hasattr(widget, 'children'):
             for child in widget.children:
                 self._log_widget_tree(child, level + 1)
+    
+    def _force_full_refresh(self):
+        """Force a full refresh of the UI."""
+        logging.info("=== Forcing full refresh ===")
+        self.refresh(layout=True, repaint=True)
+        if hasattr(self, 'main_container'):
+            self.main_container.refresh(layout=True, repaint=True)
+            self.main_container._apply_sizes()
         
     def on_unmount(self) -> None:
         """Clean up when app exits."""
