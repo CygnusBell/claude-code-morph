@@ -51,11 +51,13 @@ class ClaudeCodeMorph(App):
     CSS = """
     Screen {
         layout: vertical;
+        overflow-y: auto;
     }
     
     #tab-container {
         height: 1fr;
         width: 100%;
+        min-height: 20;
     }
     
     Button {
@@ -101,6 +103,19 @@ class ClaudeCodeMorph(App):
     TabPane > ResizableContainer {
         height: 1fr;
         width: 100%;
+    }
+    
+    ContentSwitcher {
+        height: 1fr;
+        width: 100%;
+    }
+    
+    TabbedContent > ContentSwitcher {
+        height: 1fr;
+    }
+    
+    TabbedContent ContentTabs {
+        height: auto;
     }
     
     .panel-container {
@@ -320,6 +335,7 @@ class ClaudeCodeMorph(App):
             
     def compose(self) -> ComposeResult:
         """Create the main layout."""
+        logging.info("=== compose() called ===")
         yield Header()
         
         from .widgets.resizable import ResizableContainer
@@ -327,18 +343,17 @@ class ClaudeCodeMorph(App):
         # Store references to containers
         self.main_container = ResizableContainer(id="main-container")
         self.morph_container = ResizableContainer(id="morph-container")
+        logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}")
         
         # Create the tabbed content with context managers
-        # This is the proper way to use TabbedContent in Textual
-        with TabbedContent("Main", "Morph", id="tab-container"):
+        with TabbedContent(id="tab-container"):
             with TabPane("Main", id="main-tab"):
-                # Yield containers directly in TabPane
                 yield self.main_container
             with TabPane("Morph", id="morph-tab"):
-                # Yield containers directly in TabPane
                 yield self.morph_container
-                
+        
         yield Footer()
+        logging.info("=== compose() completed ===")
         
     def on_key(self, event) -> None:
         """Debug key events."""
@@ -356,6 +371,9 @@ class ClaudeCodeMorph(App):
         """Called when the app starts."""
         logging.info("=== on_mount called ===")
         
+        # Log the widget tree
+        self._log_widget_tree()
+        
         # Hot-reloading disabled - use F5 for manual reload
         # try:
         #     self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
@@ -372,14 +390,21 @@ class ClaudeCodeMorph(App):
                 logging.info(f"Found session info: {session_info}")
                 self.notify(f"Found session from {session_info.get('saved_at', 'unknown time')}")
                 # Load with session
+                logging.info("Calling _load_with_session...")
                 await self._load_with_session()
             else:
                 logging.info("No session found, loading default workspace")
                 # Load default workspace
+                logging.info("Calling load_workspace_file...")
                 await self.load_workspace_file("default.yaml")
                 
             # Connect the panels after loading
+            logging.info("Calling _connect_panels...")
             self._connect_panels()
+            
+            # Log widget tree after loading
+            logging.info("=== Widget tree after loading ===")
+            self._log_widget_tree()
             
         except Exception as e:
             logging.error(f"Error during mount: {e}", exc_info=True)
@@ -387,6 +412,7 @@ class ClaudeCodeMorph(App):
         
         # Start auto-save timer (30 seconds)
         self._start_auto_save()
+        logging.info("=== on_mount completed ===")
     
         
     async def startup_prompt(self) -> None:
@@ -441,6 +467,7 @@ class ClaudeCodeMorph(App):
     async def load_workspace(self, config: dict) -> None:
         """Load a workspace configuration into the main tab."""
         logging.info("=== load_workspace called ===")
+        logging.info(f"Config: {config}")
         
         # Use the stored reference to main container
         if not hasattr(self, 'main_container'):
@@ -450,6 +477,9 @@ class ClaudeCodeMorph(App):
             
         container = self.main_container
         logging.info(f"Using main container: {container}")
+        logging.info(f"Container is mounted: {container.is_mounted}")
+        logging.info(f"Container parent: {container.parent}")
+        logging.info(f"Container children before clear: {len(container.children)}")
         
         # Clear existing panels
         await container.remove_children()
@@ -485,6 +515,11 @@ class ClaudeCodeMorph(App):
         # Debug - log container info
         logging.info(f"Container children count: {len(container.children)}")
         logging.info(f"Container panels count: {len(container.panels)}")
+        logging.info(f"Container is mounted: {container.is_mounted}")
+        logging.info(f"Container size: {container.size}")
+        logging.info(f"Container region: {container.region}")
+        logging.info(f"Container styles.display: {container.styles.display}")
+        logging.info(f"Container styles.visibility: {container.styles.visibility}")
         for i, child in enumerate(container.children):
             logging.info(f"Child {i}: {child} (visible: {child.visible if hasattr(child, 'visible') else 'N/A'})")
             # Check if it's a wrapper container and log its children
@@ -502,10 +537,17 @@ class ClaudeCodeMorph(App):
         try:
             # Find the tab pane that contains this container
             tabbed = self.query_one("#tab-container", TabbedContent)
+            logging.info(f"TabbedContent found: {tabbed}")
+            logging.info(f"TabbedContent active tab: {tabbed.active}")
+            
             # Get all tab panes
             tab_panes = list(tabbed.query(TabPane))
+            logging.info(f"Found {len(tab_panes)} tab panes")
+            
             for tab_pane in tab_panes:
+                logging.info(f"Tab pane {tab_pane.id}: visible={tab_pane.visible}, display={tab_pane.display}")
                 if container in tab_pane.children:
+                    logging.info(f"Container found in tab pane: {tab_pane.id}")
                     logging.info(f"Refreshing tab pane: {tab_pane.id}")
                     tab_pane.refresh(layout=True, repaint=True)
             tabbed.refresh(layout=True, repaint=True)
@@ -1001,6 +1043,26 @@ class ClaudeCodeMorph(App):
             
         # Save every 30 seconds
         self._auto_save_timer = self.set_timer(30, auto_save, pause=False)
+        
+    def _log_widget_tree(self, widget=None, level=0):
+        """Log the widget tree for debugging."""
+        if widget is None:
+            widget = self
+            
+        indent = "  " * level
+        widget_info = f"{widget.__class__.__name__}"
+        if hasattr(widget, 'id') and widget.id:
+            widget_info += f"(id='{widget.id}')"
+        if hasattr(widget, 'display') and not widget.display:
+            widget_info += " [HIDDEN]"
+        if hasattr(widget, 'visible') and not widget.visible:
+            widget_info += " [INVISIBLE]"
+            
+        logging.info(f"{indent}{widget_info}")
+        
+        if hasattr(widget, 'children'):
+            for child in widget.children:
+                self._log_widget_tree(child, level + 1)
         
     def on_unmount(self) -> None:
         """Clean up when app exits."""
