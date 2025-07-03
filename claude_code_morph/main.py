@@ -320,9 +320,6 @@ class ClaudeCodeMorph(App):
         
     def on_mount(self) -> None:
         """Called when the app starts."""
-        # Set up exception handling
-        self.set_exception_handler(self._handle_exception)
-        
         # Hot-reloading disabled - use F5 for manual reload
         # try:
         #     self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
@@ -393,33 +390,19 @@ class ClaudeCodeMorph(App):
         """Load a workspace configuration into the main tab."""
         from .widgets.resizable import ResizableContainer
         
-        # Get the main container from within the main tab
+        # Get the main container - it should be directly queryable
         try:
-            # First get the tab container, then find the main-container within it
-            tab_container = self.query_one("#tab-container", TabbedContent)
-            logging.debug(f"Found tab container: {tab_container}")
-            
-            # The main-container is inside the first TabPane (main-tab)
-            main_tab = tab_container.get_child_by_id("main-tab")
-            if not main_tab:
-                # Try alternative method
-                for child in tab_container.children:
-                    if hasattr(child, 'id') and child.id == "main-tab":
-                        main_tab = child
-                        break
-            
-            if not main_tab:
-                logging.error("Could not find main-tab")
-                self.notify("Error: Could not find main tab", severity="error")
-                return
-                
-            logging.debug(f"Found main tab: {main_tab}")
-            
-            container = main_tab.query_one("#main-container", ResizableContainer)
-            logging.debug(f"Found container: {container}")
+            # Try direct query first
+            container = self.query_one("#main-container", ResizableContainer)
+            logging.debug(f"Found container directly: {container}")
         except Exception as e:
             logging.error(f"Could not find main container: {e}", exc_info=True)
             self.notify(f"Error finding main container: {e}", severity="error")
+            
+            # Log all available widgets for debugging
+            self.notify("Debugging: Listing all widgets...", severity="warning")
+            for widget in self.query("*").results():
+                logging.info(f"Widget: {widget.__class__.__name__} with id={getattr(widget, 'id', 'None')}")
             return
         
         # Clear existing panels
@@ -488,10 +471,13 @@ class ClaudeCodeMorph(App):
             # Add to layout
             if container is None:
                 from .widgets.resizable import ResizableContainer
-                # Get the main container from within the main tab
-                tab_container = self.query_one("#tab-container", TabbedContent)
-                main_tab = tab_container.get_child_by_id("main-tab")
-                container = main_tab.query_one("#main-container", ResizableContainer)
+                # Try to get the main container directly
+                try:
+                    container = self.query_one("#main-container", ResizableContainer)
+                except Exception as e:
+                    logging.error(f"Could not find container in add_panel: {e}")
+                    self.notify(f"Error: Could not find container to add panel", severity="error")
+                    return
             await container.mount(panel)
             
             # Store reference
