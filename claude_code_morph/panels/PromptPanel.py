@@ -48,7 +48,7 @@ class PromptPanel(BasePanel):
     ]
     
     CSS = BasePanel.DEFAULT_CSS + """
-    /* CSS Updated: Fixed layout structure */
+    /* CSS Updated: v2 - Reduced queue size */
     PromptPanel {
         layout: vertical;
         height: 100%;
@@ -471,6 +471,16 @@ class PromptPanel(BasePanel):
         # Schedule layout logging after the layout has been calculated
         self.set_timer(0.5, self._log_layout_structure)
         
+        # Force CSS refresh
+        self.refresh_css()
+        
+        # Programmatically set styles to ensure they're applied
+        if hasattr(self, 'queue_container'):
+            self.queue_container.styles.height = 2
+            self.queue_container.styles.max_height = 2
+        if hasattr(self, 'prompt_input'):
+            self.prompt_input.styles.min_height = 3
+        
         # Check if we have a restored queue from previous session
         if self.prompt_queue:
             # Show notification about restored queue
@@ -518,6 +528,10 @@ class PromptPanel(BasePanel):
                     subchild_id = getattr(subchild, 'id', 'no-id')
                     subchild_region = getattr(subchild, 'region', 'no-region')
                     logging.info(f"    Child {i}.{j}: {subchild.__class__.__name__} id={subchild_id} region={subchild_region}")
+        
+        # Log the queue container styles specifically
+        if hasattr(self, 'queue_container'):
+            logging.info(f"Queue container styles: height={self.queue_container.styles.height}, max_height={self.queue_container.styles.max_height}")
     
     async def _monitor_queue(self) -> None:
         """Monitor the queue and ensure it's processed when Claude is idle."""
