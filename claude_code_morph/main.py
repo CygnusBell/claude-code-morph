@@ -371,9 +371,12 @@ class ClaudeCodeMorph(App):
         
     async def load_workspace_file(self, filename: str) -> None:
         """Load a workspace configuration from file."""
+        logging.info(f"=== load_workspace_file called with: {filename} ===")
         workspace_path = self.workspaces_dir / filename
+        logging.info(f"Workspace path: {workspace_path}")
         
         if not workspace_path.exists():
+            logging.error(f"Workspace file not found: {workspace_path}")
             self.notify(f"Workspace {filename} not found, loading minimal layout", severity="warning")
             await self.load_minimal_layout()
             return
@@ -381,17 +384,21 @@ class ClaudeCodeMorph(App):
         try:
             with open(workspace_path, 'r') as f:
                 config = yaml.safe_load(f)
-                
+            
+            logging.info(f"Loaded config: {config}")
             await self.load_workspace(config)
             self.current_workspace = filename
             self.notify(f"Loaded workspace: {filename}")
             
         except Exception as e:
+            logging.error(f"Error loading workspace file: {e}", exc_info=True)
             self.notify(f"Error loading workspace: {e}", severity="error")
             await self.load_minimal_layout()
             
     async def load_workspace(self, config: dict) -> None:
         """Load a workspace configuration into the main tab."""
+        logging.info("=== load_workspace called ===")
+        
         # Use the stored reference to main container
         if not hasattr(self, 'main_container'):
             logging.error("Main container not initialized yet")
@@ -399,7 +406,7 @@ class ClaudeCodeMorph(App):
             return
             
         container = self.main_container
-        logging.debug(f"Using main container: {container}")
+        logging.info(f"Using main container: {container}")
         
         # Clear existing panels
         await container.remove_children()
@@ -416,11 +423,16 @@ class ClaudeCodeMorph(App):
             panel_id = panel_config.get("id", panel_type)
             params = panel_config.get("params", {})
             
-            logging.info(f"Loading panel: {panel_type} (id: {panel_id})")
+            logging.info(f"Loading panel: {panel_type} (id: {panel_id}) with params: {params}")
             self.notify(f"Loading panel: {panel_type} (id: {panel_id})")
             
             if panel_type:
-                await self.add_panel(panel_type, panel_id, params, container)
+                try:
+                    await self.add_panel(panel_type, panel_id, params, container)
+                    logging.info(f"Successfully added panel {panel_id}")
+                except Exception as e:
+                    logging.error(f"Failed to add panel {panel_id}: {e}", exc_info=True)
+                    self.notify(f"Failed to add panel {panel_id}: {e}", severity="error")
                 
     async def load_minimal_layout(self) -> None:
         """Load minimal layout with just terminal panel."""
