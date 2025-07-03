@@ -79,6 +79,7 @@ class PromptPanel(BasePanel):
         padding: 1;
         background: $surface;
         border: solid $primary;
+        dock: top;
     }
     
     PromptPanel .controls-container {
@@ -410,61 +411,52 @@ class PromptPanel(BasePanel):
         if not hasattr(self, 'context_saver_enabled'):
             self.context_saver_enabled = False
         
-        # Remove test label
+        # Prompt input area - takes up most space
+        self.prompt_input = TextArea(id="prompt-input")
+        yield self.prompt_input
         
-        # Main container - but don't use classes that might have conflicting CSS
-        with Vertical():
-            # Prompt input area - takes up most space
-            self.prompt_input = TextArea(id="prompt-input")
-            self.prompt_input.styles.height = "1fr"
-            self.prompt_input.styles.min_height = 10
-            yield self.prompt_input
+        # Controls with toggle and action buttons
+        with Horizontal(classes="button-controls"):
+            # Morph Mode toggle button with indicator
+            self.morph_mode_btn = Button(
+                "○ Morph Mode",
+                id="morph-mode-btn"
+            )
+            yield self.morph_mode_btn
             
-            # Debug: Log composition
-            logging.debug("Creating controls container")
+            # Token Saver toggle button with indicator
+            self.cost_saver_btn = Button(
+                "○ Token Saver",
+                id="optimize-btn"
+            )
+            yield self.cost_saver_btn
             
-            # Controls with toggle and action buttons
-            with Horizontal(classes="button-controls"):
-                # Morph Mode toggle button with indicator
-                self.morph_mode_btn = Button(
-                    "○ Morph Mode",
-                    id="morph-mode-btn"
-                )
-                yield self.morph_mode_btn
-                
-                # Token Saver toggle button with indicator
-                self.cost_saver_btn = Button(
-                    "○ Token Saver",
-                    id="optimize-btn"
-                )
-                yield self.cost_saver_btn
-                
-                # Context Saver toggle button with indicator
-                self.context_saver_btn = Button(
-                    "○ Context Saver",
-                    id="context-saver-btn"
-                )
-                yield self.context_saver_btn
-                
-                # Action buttons
-                yield Button("Clear", id="clear-btn")
-                yield Button("Submit", id="submit-btn")
-                
-                # Clear Queue button (will be shown/hidden dynamically)
-                self.clear_queue_btn = Button("Clear Queue", id="clear-queue-btn", classes="clear-button")
-                self.clear_queue_btn.display = False
-                yield self.clear_queue_btn
-                
-                # Resume Queue button (will be shown/hidden dynamically)
-                self.resume_queue_btn = Button("Resume Queue", id="resume-queue-btn", variant="success")
-                self.resume_queue_btn.display = False
-                yield self.resume_queue_btn
+            # Context Saver toggle button with indicator
+            self.context_saver_btn = Button(
+                "○ Context Saver",
+                id="context-saver-btn"
+            )
+            yield self.context_saver_btn
             
-            # Prompt queue container - set size directly
-            self.queue_container = ScrollableContainer(id="queue-container", classes="prompt-queue-container")
-            self.queue_container.styles.height = 3  # Fixed height of 3 lines
-            self.queue_container.styles.max_height = 3
-            yield self.queue_container
+            # Action buttons
+            yield Button("Clear", id="clear-btn")
+            yield Button("Submit", id="submit-btn")
+            
+            # Clear Queue button (will be shown/hidden dynamically)
+            self.clear_queue_btn = Button("Clear Queue", id="clear-queue-btn", classes="clear-button")
+            self.clear_queue_btn.display = False
+            yield self.clear_queue_btn
+            
+            # Resume Queue button (will be shown/hidden dynamically)
+            self.resume_queue_btn = Button("Resume Queue", id="resume-queue-btn", variant="success")
+            self.resume_queue_btn.display = False
+            yield self.resume_queue_btn
+        
+        # Prompt queue container - use regular container with fixed height
+        self.queue_container = Container(id="queue-container", classes="prompt-queue-container")
+        self.queue_container.styles.height = 3  # Fixed height of 3 lines
+        self.queue_container.styles.overflow_y = "auto"
+        yield self.queue_container
     
     def on_mount(self) -> None:
         """Initialize the queue display when mounted and set IDs for all widgets."""
