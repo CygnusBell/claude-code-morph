@@ -461,6 +461,14 @@ class ClaudeCodeMorph(App):
         # Start auto-save timer (30 seconds)
         self._start_auto_save()
         
+        # Add placeholder content to Morph tab
+        try:
+            logging.info("Adding MorphPanel to morph container")
+            await self.add_panel("MorphPanel", "morph", {}, self.morph_container)
+            logging.info("MorphPanel added successfully")
+        except Exception as e:
+            logging.error(f"Error adding MorphPanel: {e}", exc_info=True)
+        
         # Schedule a full refresh after a short delay to ensure everything is laid out
         self.set_timer(0.5, self._force_full_refresh)
         
@@ -806,6 +814,35 @@ class ClaudeCodeMorph(App):
         finally:
             self._reloading = False
                 
+    def action_main_tab(self) -> None:
+        """Switch to Main tab."""
+        try:
+            tabbed = self.query_one("#tab-container", TabbedContent)
+            tabbed.active = "main-tab"
+            logging.info("Switched to Main tab")
+        except Exception as e:
+            logging.error(f"Error switching to Main tab: {e}")
+    
+    def action_morph_tab(self) -> None:
+        """Switch to Morph tab."""
+        try:
+            tabbed = self.query_one("#tab-container", TabbedContent)
+            tabbed.active = "morph-tab"
+            logging.info("Switched to Morph tab")
+        except Exception as e:
+            logging.error(f"Error switching to Morph tab: {e}")
+    
+    def action_switch_tab(self) -> None:
+        """Switch between tabs."""
+        try:
+            tabbed = self.query_one("#tab-container", TabbedContent)
+            if tabbed.active == "main-tab":
+                tabbed.active = "morph-tab"
+            else:
+                tabbed.active = "main-tab"
+        except Exception as e:
+            logging.error(f"Error switching tabs: {e}")
+    
     def action_save_workspace(self) -> None:
         """Save current workspace configuration."""
         # Get workspace name from user
@@ -1123,6 +1160,9 @@ class ClaudeCodeMorph(App):
         if hasattr(self, 'main_container'):
             self.main_container.refresh(layout=True, repaint=True)
             self.main_container._apply_sizes()
+        if hasattr(self, 'morph_container'):
+            self.morph_container.refresh(layout=True, repaint=True)
+            self.morph_container._apply_sizes()
         
     def on_unmount(self) -> None:
         """Clean up when app exits."""
