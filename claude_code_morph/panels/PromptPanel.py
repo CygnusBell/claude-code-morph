@@ -466,6 +466,13 @@ class PromptPanel(BasePanel):
         logging.debug(f"  - cost_saver_btn: {getattr(self.cost_saver_btn, 'id', 'No ID')}")
         logging.debug(f"  - queue_container: {getattr(self.queue_container, 'id', 'No ID')}")
         
+        # Log the actual layout structure
+        logging.info("PromptPanel layout structure:")
+        for i, child in enumerate(self.children):
+            child_id = getattr(child, 'id', 'no-id')
+            child_region = getattr(child, 'region', 'no-region')
+            logging.info(f"  Child {i}: {child.__class__.__name__} id={child_id} region={child_region}")
+        
         # Check if we have a restored queue from previous session
         if self.prompt_queue:
             # Show notification about restored queue

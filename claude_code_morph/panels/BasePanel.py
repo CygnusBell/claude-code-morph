@@ -594,6 +594,9 @@ class BasePanel(Static):
         for child in self.children:
             check_widget_at_position(child)
         
+        # Also check the panel itself
+        check_widget_at_position(self)
+        
         # Sort by depth (deepest first) and pick the most specific widget
         candidates.sort(reverse=True)
         
