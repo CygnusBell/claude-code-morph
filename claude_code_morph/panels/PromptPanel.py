@@ -410,6 +410,9 @@ class PromptPanel(BasePanel):
         if not hasattr(self, 'context_saver_enabled'):
             self.context_saver_enabled = False
         
+        # Add a visible test label to verify changes are loading
+        yield Label("TEST: Changes ARE loading! Queue should be small now.", id="test-label")
+        
         # Main container to fill remaining space
         with Vertical(classes="prompt-content"):
             # Prompt input area - takes up most space

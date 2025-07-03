@@ -792,18 +792,12 @@ class BasePanel(Static):
             
     def on_enter(self, event: Enter) -> None:
         """Handle mouse enter events on widgets."""
-        # Show widget label if in Morph Mode
-        logging.debug(f"Enter event on widget: {event.widget.__class__.__name__}")
-        morph_active = self.is_morph_mode_active()
-        logging.debug(f"Morph mode active: {morph_active}")
-        if morph_active and event.widget != self:
-            logging.debug(f"Showing widget label for {event.widget.__class__.__name__}")
-            self._show_widget_label(event.widget, 0, 0)
+        # Enter/Leave events don't have widget attribute in Textual
+        # This functionality would need to be implemented differently
+        pass
             
     def on_leave(self, event: Leave) -> None:
         """Handle mouse leave events on widgets."""
-        # Hide label when leaving a widget
-        if self.is_morph_mode_active() and self.hovered_widget == event.widget:
-            self.hovered_widget = None
-            # Clear any notifications (temporary solution)
-            # In the future, this would remove the actual floating label
+        # Enter/Leave events don't have widget attribute in Textual
+        # This functionality would need to be implemented differently
+        pass
