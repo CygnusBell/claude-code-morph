@@ -289,9 +289,20 @@ class ClaudeCodeMorph(App):
             await self.load_minimal_layout()
             
     async def load_workspace(self, config: dict) -> None:
-        """Load a workspace configuration."""
+        """Load a workspace configuration into the main tab."""
         from .widgets.resizable import ResizableContainer
-        container = self.query_one("#main-container", ResizableContainer)
+        
+        # Get the main container from within the main tab
+        try:
+            # First get the tab container, then find the main-container within it
+            tab_container = self.query_one("#tab-container", TabbedContent)
+            # The main-container is inside the first TabPane (main-tab)
+            main_tab = tab_container.get_child_by_id("main-tab")
+            container = main_tab.query_one("#main-container", ResizableContainer)
+        except Exception as e:
+            logging.error(f"Could not find main container: {e}")
+            self.notify(f"Error finding main container: {e}", severity="error")
+            return
         
         # Clear existing panels
         await container.remove_children()
@@ -312,7 +323,7 @@ class ClaudeCodeMorph(App):
             self.notify(f"Loading panel: {panel_type} (id: {panel_id})")
             
             if panel_type:
-                await self.add_panel(panel_type, panel_id, params)
+                await self.add_panel(panel_type, panel_id, params, container)
                 
     async def load_minimal_layout(self) -> None:
         """Load minimal layout with just terminal panel."""
@@ -359,7 +370,10 @@ class ClaudeCodeMorph(App):
             # Add to layout
             if container is None:
                 from .widgets.resizable import ResizableContainer
-                container = self.query_one("#main-container", ResizableContainer)
+                # Get the main container from within the main tab
+                tab_container = self.query_one("#tab-container", TabbedContent)
+                main_tab = tab_container.get_child_by_id("main-tab")
+                container = main_tab.query_one("#main-container", ResizableContainer)
             await container.mount(panel)
             
             # Store reference
@@ -422,7 +436,10 @@ class ClaudeCodeMorph(App):
                     
                     # Find the wrapper containing the old panel
                     from .widgets.resizable import ResizableContainer
-                    container = self.query_one("#main-container", ResizableContainer)
+                    # Get the main container from within the main tab
+                    tab_container = self.query_one("#tab-container", TabbedContent)
+                    main_tab = tab_container.get_child_by_id("main-tab")
+                    container = main_tab.query_one("#main-container", ResizableContainer)
                     
                     # Find the index of this panel in the container
                     panel_index = -1
