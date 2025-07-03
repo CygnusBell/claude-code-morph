@@ -234,11 +234,11 @@ class ClaudeCodeMorph(App):
         session_info = self.session_manager.get_session_info()
         if session_info:
             self.notify(f"Found session from {session_info.get('saved_at', 'unknown time')}")
-            # Load session after workspace
-            self.call_later(lambda: asyncio.create_task(self._load_with_session()))
+            # Load session after workspace with a delay to ensure tabs are ready
+            self.set_timer(0.1, lambda: asyncio.create_task(self._load_with_session()))
         else:
-            # Skip prompt and load default workspace directly
-            self.call_later(lambda: asyncio.create_task(self.load_workspace_file("default.yaml")))
+            # Skip prompt and load default workspace directly with a delay
+            self.set_timer(0.1, lambda: asyncio.create_task(self.load_workspace_file("default.yaml")))
             
         # Connect the panels after loading with a slight delay to ensure panels are ready
         self.call_later(lambda: self.set_timer(0.1, self._connect_panels))
@@ -296,11 +296,28 @@ class ClaudeCodeMorph(App):
         try:
             # First get the tab container, then find the main-container within it
             tab_container = self.query_one("#tab-container", TabbedContent)
+            logging.debug(f"Found tab container: {tab_container}")
+            
             # The main-container is inside the first TabPane (main-tab)
             main_tab = tab_container.get_child_by_id("main-tab")
+            if not main_tab:
+                # Try alternative method
+                for child in tab_container.children:
+                    if hasattr(child, 'id') and child.id == "main-tab":
+                        main_tab = child
+                        break
+            
+            if not main_tab:
+                logging.error("Could not find main-tab")
+                self.notify("Error: Could not find main tab", severity="error")
+                return
+                
+            logging.debug(f"Found main tab: {main_tab}")
+            
             container = main_tab.query_one("#main-container", ResizableContainer)
+            logging.debug(f"Found container: {container}")
         except Exception as e:
-            logging.error(f"Could not find main container: {e}")
+            logging.error(f"Could not find main container: {e}", exc_info=True)
             self.notify(f"Error finding main container: {e}", severity="error")
             return
         
