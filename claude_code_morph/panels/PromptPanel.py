@@ -410,13 +410,14 @@ class PromptPanel(BasePanel):
         if not hasattr(self, 'context_saver_enabled'):
             self.context_saver_enabled = False
         
-        # Add a visible test label to verify changes are loading
-        yield Label("TEST: Changes ARE loading! Queue should be small now.", id="test-label")
+        # Remove test label
         
-        # Main container to fill remaining space
-        with Vertical(classes="prompt-content"):
+        # Main container - but don't use classes that might have conflicting CSS
+        with Vertical():
             # Prompt input area - takes up most space
             self.prompt_input = TextArea(id="prompt-input")
+            self.prompt_input.styles.height = "1fr"
+            self.prompt_input.styles.min_height = 10
             yield self.prompt_input
             
             # Debug: Log composition
@@ -459,8 +460,10 @@ class PromptPanel(BasePanel):
                 self.resume_queue_btn.display = False
                 yield self.resume_queue_btn
             
-            # Prompt queue container
+            # Prompt queue container - set size directly
             self.queue_container = ScrollableContainer(id="queue-container", classes="prompt-queue-container")
+            self.queue_container.styles.height = 3  # Fixed height of 3 lines
+            self.queue_container.styles.max_height = 3
             yield self.queue_container
     
     def on_mount(self) -> None:
