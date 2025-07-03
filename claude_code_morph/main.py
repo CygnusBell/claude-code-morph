@@ -295,14 +295,18 @@ class ClaudeCodeMorph(App):
         yield Header()
         from .widgets.resizable import ResizableContainer
         
+        # Store references to containers
+        self.main_container = ResizableContainer(id="main-container")
+        self.morph_container = ResizableContainer(id="morph-container")
+        
         # Create the tabbed content
         with TabbedContent("Main", "Morph", id="tab-container"):
             # Main tab content
             with TabPane("Main", id="main-tab"):
-                yield ResizableContainer(id="main-container")
+                yield self.main_container
             # Morph tab content  
             with TabPane("Morph", id="morph-tab"):
-                yield ResizableContainer(id="morph-container")
+                yield self.morph_container
                 
         yield Footer()
         
@@ -388,30 +392,14 @@ class ClaudeCodeMorph(App):
             
     async def load_workspace(self, config: dict) -> None:
         """Load a workspace configuration into the main tab."""
-        from .widgets.resizable import ResizableContainer
-        
-        # Get the main container - it should be directly queryable
-        try:
-            # Try direct query first
-            container = self.query_one("#main-container", ResizableContainer)
-            logging.debug(f"Found container directly: {container}")
-        except Exception as e:
-            logging.error(f"Could not find main container: {e}", exc_info=True)
-            self.notify(f"Error finding main container: {e}", severity="error")
-            
-            # Log all available widgets for debugging
-            self.notify("Debugging: Listing all widgets...", severity="warning")
-            logging.error("=== Widget Tree Debug ===")
-            for widget in self.query("*").results():
-                widget_info = f"Widget: {widget.__class__.__name__} with id={getattr(widget, 'id', 'None')}"
-                logging.error(widget_info)
-                print(widget_info)  # Also print to console
-                
-            # Try to find ResizableContainer without ID constraint
-            logging.error("=== Looking for ResizableContainers ===")
-            for widget in self.query("ResizableContainer").results():
-                logging.error(f"Found ResizableContainer: {widget} with id={getattr(widget, 'id', 'None')}")
+        # Use the stored reference to main container
+        if not hasattr(self, 'main_container'):
+            logging.error("Main container not initialized yet")
+            self.notify("Error: Main container not ready", severity="error")
             return
+            
+        container = self.main_container
+        logging.debug(f"Using main container: {container}")
         
         # Clear existing panels
         await container.remove_children()
@@ -478,13 +466,12 @@ class ClaudeCodeMorph(App):
             
             # Add to layout
             if container is None:
-                from .widgets.resizable import ResizableContainer
-                # Try to get the main container directly
-                try:
-                    container = self.query_one("#main-container", ResizableContainer)
-                except Exception as e:
-                    logging.error(f"Could not find container in add_panel: {e}")
-                    self.notify(f"Error: Could not find container to add panel", severity="error")
+                # Use the stored main container reference
+                if hasattr(self, 'main_container'):
+                    container = self.main_container
+                else:
+                    logging.error("Main container not available in add_panel")
+                    self.notify("Error: Main container not ready", severity="error")
                     return
             await container.mount(panel)
             
@@ -548,10 +535,11 @@ class ClaudeCodeMorph(App):
                     
                     # Find the wrapper containing the old panel
                     from .widgets.resizable import ResizableContainer
-                    # Get the main container from within the main tab
-                    tab_container = self.query_one("#tab-container", TabbedContent)
-                    main_tab = tab_container.get_child_by_id("main-tab")
-                    container = main_tab.query_one("#main-container", ResizableContainer)
+                    # Use the stored main container reference
+                    container = self.main_container if hasattr(self, 'main_container') else None
+                    if not container:
+                        logging.error("Main container not available in reload_panel")
+                        return
                     
                     # Find the index of this panel in the container
                     panel_index = -1
@@ -760,9 +748,13 @@ class ClaudeCodeMorph(App):
     
     async def _load_morph_workspace(self) -> None:
         """Load workspace configuration into morph tab."""
-        # Load terminal panel into morph container
-        from .widgets.resizable import ResizableContainer
-        container = self.query_one("#morph-container", ResizableContainer)
+        # Use stored morph container reference
+        if not hasattr(self, 'morph_container'):
+            logging.error("Morph container not initialized")
+            self.notify("Error: Morph container not ready", severity="error")
+            return
+            
+        container = self.morph_container
         
         # Create terminal panel with morph source directory
         panel_params = {
