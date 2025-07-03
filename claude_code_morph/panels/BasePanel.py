@@ -417,6 +417,15 @@ class BasePanel(Static):
         if self.is_morph_mode_active():
             # Use the event coordinates directly
             self._check_widget_hover(event.x, event.y)
+            # Debug log
+            if hasattr(self, '_last_log_time'):
+                import time
+                if time.time() - self._last_log_time > 1:  # Log once per second
+                    logging.info(f"Mouse move in morph mode at ({event.x}, {event.y})")
+                    self._last_log_time = time.time()
+            else:
+                import time
+                self._last_log_time = time.time()
             
     def on_mouse_up(self, event) -> None:
         """Handle mouse release to end selection."""
@@ -587,6 +596,13 @@ class BasePanel(Static):
         
         # Sort by depth (deepest first) and pick the most specific widget
         candidates.sort(reverse=True)
+        
+        # Debug: log candidates
+        if candidates:
+            logging.debug(f"Found {len(candidates)} widget candidates at position ({x}, {y})")
+            for depth, w in candidates[:3]:  # Log top 3
+                w_id = getattr(w, 'id', 'no-id')
+                logging.debug(f"  Depth {depth}: {w.__class__.__name__} (id={w_id})")
         
         # Find the most relevant widget (skip pure containers without IDs)
         widget = None
