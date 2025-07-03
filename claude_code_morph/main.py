@@ -200,12 +200,16 @@ class ClaudeCodeMorph(App):
         yield Header()
         from .widgets.resizable import ResizableContainer
         
-        with TabbedContent(id="tab-container"):
+        # Create the tabbed content container
+        tabbed_content = TabbedContent(id="tab-container")
+        
+        with tabbed_content:
             with TabPane("Main", id="main-tab"):
                 yield ResizableContainer(id="main-container")
             with TabPane("Morph", id="morph-tab"):
                 yield ResizableContainer(id="morph-container")
-                
+        
+        yield tabbed_content
         yield Footer()
         
     def on_key(self, event) -> None:
