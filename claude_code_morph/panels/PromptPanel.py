@@ -58,7 +58,7 @@ class PromptPanel(BasePanel):
     
     PromptPanel #prompt-input {
         height: 1fr;
-        min-height: 10;
+        min-height: 3;
         margin: 0 1;
         padding: 1;
         background: $surface;
@@ -182,8 +182,8 @@ class PromptPanel(BasePanel):
     
     /* Prompt queue styles */
     PromptPanel #queue-container {
-        height: 3;
-        max-height: 3;
+        height: 2;
+        max-height: 2;
         margin: 0 1;
         padding: 0;
         background: $surface;
