@@ -18,6 +18,7 @@ from textual.widgets import Header, Footer, Static, TabbedContent, TabPane
 from textual.binding import Binding
 from rich.console import Console
 from rich.prompt import Prompt
+from datetime import datetime
 # Hot-reloading disabled - watchdog imports removed
 # from watchdog.observers import Observer
 # from watchdog.events import FileSystemEventHandler
@@ -171,6 +172,9 @@ class ClaudeCodeMorph(App):
         self.panels_dir.mkdir(exist_ok=True)
         self.workspaces_dir.mkdir(exist_ok=True)
         
+        # Set up error logging
+        self._setup_error_logging()
+        
         # Hot-reloading disabled - use F5 for manual reload
         # self.observer = Observer()
         # self.panel_reloader = PanelReloader(self)
@@ -183,6 +187,62 @@ class ClaudeCodeMorph(App):
         self.morph_tab_activated = False
         self.main_panels: Dict[str, object] = {}
         self.morph_panels: Dict[str, object] = {}
+        
+    def _setup_error_logging(self) -> None:
+        """Set up error logging to file."""
+        # Create logs directory if it doesn't exist
+        log_dir = Path.cwd() / "logs"
+        log_dir.mkdir(exist_ok=True)
+        
+        # Set up error log file
+        error_log_path = log_dir / "error.log"
+        
+        # Create a file handler for errors
+        error_handler = logging.FileHandler(error_log_path, mode='a')
+        error_handler.setLevel(logging.ERROR)
+        
+        # Create formatter
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        error_handler.setFormatter(formatter)
+        
+        # Add handler to root logger
+        logging.getLogger().addHandler(error_handler)
+        
+        # Log startup
+        logging.info(f"Error logging initialized at {error_log_path}")
+        
+    def notify(
+        self,
+        message: str,
+        *,
+        title: str = "",
+        severity: str = "information",
+        timeout: float = 3.0,
+    ) -> None:
+        """Override notify to log errors to file."""
+        # Log errors and warnings to file
+        if severity in ("error", "warning"):
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_message = f"[{timestamp}] {severity.upper()}: {message}"
+            if title:
+                log_message = f"[{timestamp}] {severity.upper()} - {title}: {message}"
+            
+            # Write to error log
+            try:
+                log_path = Path.cwd() / "logs" / "error.log"
+                log_path.parent.mkdir(exist_ok=True)
+                with open(log_path, 'a') as f:
+                    f.write(log_message + "\n")
+                    f.flush()
+            except Exception as e:
+                # Fallback to standard logging if file write fails
+                logging.error(f"Failed to write to error.log: {e}")
+                logging.error(log_message)
+        
+        # Call parent notify to show the notification
+        super().notify(message, title=title, severity=severity, timeout=timeout)
         
     def on_parser_error(self, event) -> None:
         """Handle CSS parser errors."""
