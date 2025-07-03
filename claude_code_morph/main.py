@@ -199,19 +199,27 @@ class ClaudeCodeMorph(App):
         
         # Create a file handler for errors
         error_handler = logging.FileHandler(error_log_path, mode='a')
-        error_handler.setLevel(logging.ERROR)
+        error_handler.setLevel(logging.WARNING)  # Capture warnings too
         
         # Create formatter
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s\n%(pathname)s:%(lineno)d'
         )
         error_handler.setFormatter(formatter)
         
         # Add handler to root logger
-        logging.getLogger().addHandler(error_handler)
+        root_logger = logging.getLogger()
+        root_logger.addHandler(error_handler)
+        root_logger.setLevel(logging.INFO)
         
         # Log startup
         logging.info(f"Error logging initialized at {error_log_path}")
+        
+        # Write a test entry to ensure it's working
+        with open(error_log_path, 'a') as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"Application started at {datetime.now()}\n")
+            f.write(f"{'='*60}\n")
         
     def notify(
         self,
@@ -243,6 +251,33 @@ class ClaudeCodeMorph(App):
         
         # Call parent notify to show the notification
         super().notify(message, title=title, severity=severity, timeout=timeout)
+    
+    def _handle_exception(self, error: Exception) -> None:
+        """Handle unhandled exceptions and log them."""
+        import traceback
+        
+        # Get full traceback
+        tb_str = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
+        
+        # Log to error.log
+        try:
+            log_path = Path.cwd() / "logs" / "error.log"
+            log_path.parent.mkdir(exist_ok=True)
+            with open(log_path, 'a') as f:
+                f.write(f"\n{'='*60}\n")
+                f.write(f"UNHANDLED EXCEPTION at {datetime.now()}\n")
+                f.write(f"{'='*60}\n")
+                f.write(tb_str)
+                f.write(f"{'='*60}\n\n")
+                f.flush()
+        except Exception as e:
+            logging.error(f"Failed to write exception to error.log: {e}")
+        
+        # Also log using standard logging
+        logging.error(f"Unhandled exception: {error}", exc_info=True)
+        
+        # Show notification to user
+        self.notify(f"Error: {str(error)}", severity="error")
         
     def on_parser_error(self, event) -> None:
         """Handle CSS parser errors."""
@@ -285,6 +320,9 @@ class ClaudeCodeMorph(App):
         
     def on_mount(self) -> None:
         """Called when the app starts."""
+        # Set up exception handling
+        self.set_exception_handler(self._handle_exception)
+        
         # Hot-reloading disabled - use F5 for manual reload
         # try:
         #     self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
