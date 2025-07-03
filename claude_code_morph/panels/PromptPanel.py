@@ -183,10 +183,12 @@ class PromptPanel(BasePanel):
     /* Prompt queue styles */
     PromptPanel #queue-container {
         height: 3;
+        max-height: 3;
         margin: 0 1;
         padding: 0;
         background: $surface;
         border: solid $primary;
+        overflow-y: auto;
     }
     
     PromptPanel .prompt-queue-item {
@@ -466,12 +468,8 @@ class PromptPanel(BasePanel):
         logging.debug(f"  - cost_saver_btn: {getattr(self.cost_saver_btn, 'id', 'No ID')}")
         logging.debug(f"  - queue_container: {getattr(self.queue_container, 'id', 'No ID')}")
         
-        # Log the actual layout structure
-        logging.info("PromptPanel layout structure:")
-        for i, child in enumerate(self.children):
-            child_id = getattr(child, 'id', 'no-id')
-            child_region = getattr(child, 'region', 'no-region')
-            logging.info(f"  Child {i}: {child.__class__.__name__} id={child_id} region={child_region}")
+        # Schedule layout logging after the layout has been calculated
+        self.set_timer(0.5, self._log_layout_structure)
         
         # Check if we have a restored queue from previous session
         if self.prompt_queue:
@@ -507,6 +505,20 @@ class PromptPanel(BasePanel):
         if not hasattr(self, '_queue_monitor_task') or self._queue_monitor_task.done():
             self._queue_monitor_task = asyncio.create_task(self._monitor_queue())
         
+    def _log_layout_structure(self) -> None:
+        """Log the layout structure with actual regions."""
+        logging.info("PromptPanel layout structure (after layout):")
+        for i, child in enumerate(self.children):
+            child_id = getattr(child, 'id', 'no-id')
+            child_region = getattr(child, 'region', 'no-region')
+            logging.info(f"  Child {i}: {child.__class__.__name__} id={child_id} region={child_region}")
+            # If it's a container, log its children too
+            if hasattr(child, 'children') and child.__class__.__name__ in ['Container', 'Horizontal', 'Vertical']:
+                for j, subchild in enumerate(child.children):
+                    subchild_id = getattr(subchild, 'id', 'no-id')
+                    subchild_region = getattr(subchild, 'region', 'no-region')
+                    logging.info(f"    Child {i}.{j}: {subchild.__class__.__name__} id={subchild_id} region={subchild_region}")
+    
     async def _monitor_queue(self) -> None:
         """Monitor the queue and ensure it's processed when Claude is idle."""
         import time

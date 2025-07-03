@@ -415,13 +415,18 @@ class BasePanel(Static):
             
         # Handle widget hover detection
         if self.is_morph_mode_active():
-            # Use the event coordinates directly
-            self._check_widget_hover(event.x, event.y)
+            # Convert event coordinates to screen coordinates
+            screen_x = event.screen_x if hasattr(event, 'screen_x') else event.x
+            screen_y = event.screen_y if hasattr(event, 'screen_y') else event.y
+            
+            # Use screen coordinates for widget detection
+            self._check_widget_hover(screen_x, screen_y)
+            
             # Debug log
             if hasattr(self, '_last_log_time'):
                 import time
                 if time.time() - self._last_log_time > 1:  # Log once per second
-                    logging.info(f"Mouse move in morph mode at ({event.x}, {event.y})")
+                    logging.info(f"Mouse move in morph mode at panel:({event.x}, {event.y}) screen:({screen_x}, {screen_y})")
                     self._last_log_time = time.time()
             else:
                 import time
@@ -573,6 +578,9 @@ class BasePanel(Static):
         if not self.is_morph_mode_active():
             return
             
+        # Log what we're looking for
+        logging.debug(f"Looking for widget at screen position ({x}, {y})")
+            
         # Find the most specific widget at the mouse position
         # Start with children and work our way down to find the deepest visible widget
         candidates = []
@@ -581,6 +589,7 @@ class BasePanel(Static):
             """Recursively check if widget contains position and track depth."""
             if hasattr(w, 'region') and w.visible:
                 region = w.region
+                # Region coordinates are screen coordinates
                 if (region.x <= x < region.x + region.width and
                     region.y <= y < region.y + region.height):
                     # Add this widget as a candidate
@@ -602,18 +611,23 @@ class BasePanel(Static):
         
         # Debug: log candidates
         if candidates:
-            logging.debug(f"Found {len(candidates)} widget candidates at position ({x}, {y})")
-            for depth, w in candidates[:3]:  # Log top 3
+            logging.info(f"Found {len(candidates)} widget candidates at position ({x}, {y})")
+            for depth, w in candidates[:5]:  # Log top 5
                 w_id = getattr(w, 'id', 'no-id')
-                logging.debug(f"  Depth {depth}: {w.__class__.__name__} (id={w_id})")
+                w_region = getattr(w, 'region', 'no-region')
+                logging.info(f"  Depth {depth}: {w.__class__.__name__} (id={w_id}) region={w_region}")
+        else:
+            logging.debug(f"No widget candidates found at position ({x}, {y})")
         
         # Find the most relevant widget (skip pure containers without IDs)
         widget = None
         for depth, candidate in candidates:
-            # Skip generic containers unless they have IDs or classes
+            # Skip generic containers ONLY if they have no ID AND no classes
+            # But always include containers with IDs (like queue-container)
             if (candidate.__class__.__name__ in ['Container', 'Horizontal', 'Vertical', 'ScrollableContainer'] and 
                 not getattr(candidate, 'id', None) and 
                 not getattr(candidate, 'classes', set())):
+                logging.debug(f"Skipping container without ID or classes: {candidate}")
                 continue
             widget = candidate
             break
