@@ -332,11 +332,11 @@ class ClaudeCodeMorph(App):
         session_info = self.session_manager.get_session_info()
         if session_info:
             self.notify(f"Found session from {session_info.get('saved_at', 'unknown time')}")
-            # Load session after workspace with a delay to ensure tabs are ready
-            self.set_timer(0.1, lambda: asyncio.create_task(self._load_with_session()))
+            # Load session after workspace with a longer delay to ensure tabs are ready
+            self.set_timer(0.5, lambda: asyncio.create_task(self._load_with_session()))
         else:
-            # Skip prompt and load default workspace directly with a delay
-            self.set_timer(0.1, lambda: asyncio.create_task(self.load_workspace_file("default.yaml")))
+            # Skip prompt and load default workspace directly with a longer delay
+            self.set_timer(0.5, lambda: asyncio.create_task(self.load_workspace_file("default.yaml")))
             
         # Connect the panels after loading with a slight delay to ensure panels are ready
         self.call_later(lambda: self.set_timer(0.1, self._connect_panels))
@@ -401,8 +401,16 @@ class ClaudeCodeMorph(App):
             
             # Log all available widgets for debugging
             self.notify("Debugging: Listing all widgets...", severity="warning")
+            logging.error("=== Widget Tree Debug ===")
             for widget in self.query("*").results():
-                logging.info(f"Widget: {widget.__class__.__name__} with id={getattr(widget, 'id', 'None')}")
+                widget_info = f"Widget: {widget.__class__.__name__} with id={getattr(widget, 'id', 'None')}"
+                logging.error(widget_info)
+                print(widget_info)  # Also print to console
+                
+            # Try to find ResizableContainer without ID constraint
+            logging.error("=== Looking for ResizableContainers ===")
+            for widget in self.query("ResizableContainer").results():
+                logging.error(f"Found ResizableContainer: {widget} with id={getattr(widget, 'id', 'None')}")
             return
         
         # Clear existing panels
