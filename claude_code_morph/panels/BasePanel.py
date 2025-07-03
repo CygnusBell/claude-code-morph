@@ -564,20 +564,40 @@ class BasePanel(Static):
         if not self.is_morph_mode_active():
             return
             
-        # Find the widget at the mouse position within this panel
-        widget = None
-        for child in self.walk_children():
-            if hasattr(child, 'region'):
-                # Check if mouse is within this child's region
-                region = child.region
+        # Find the most specific widget at the mouse position
+        # Start with children and work our way down to find the deepest visible widget
+        candidates = []
+        
+        def check_widget_at_position(w, depth=0):
+            """Recursively check if widget contains position and track depth."""
+            if hasattr(w, 'region') and w.visible:
+                region = w.region
                 if (region.x <= x < region.x + region.width and
                     region.y <= y < region.y + region.height):
-                    # Skip containers unless they have IDs or classes
-                    if (child.__class__.__name__ in ['Container', 'Horizontal', 'Vertical'] and 
-                        not getattr(child, 'id', None) and 
-                        not getattr(child, 'classes', set())):
-                        continue
-                    widget = child
+                    # Add this widget as a candidate
+                    candidates.append((depth, w))
+                    # Check its children for deeper matches
+                    if hasattr(w, 'children'):
+                        for child in w.children:
+                            check_widget_at_position(child, depth + 1)
+        
+        # Start checking from this panel's children
+        for child in self.children:
+            check_widget_at_position(child)
+        
+        # Sort by depth (deepest first) and pick the most specific widget
+        candidates.sort(reverse=True)
+        
+        # Find the most relevant widget (skip pure containers without IDs)
+        widget = None
+        for depth, candidate in candidates:
+            # Skip generic containers unless they have IDs or classes
+            if (candidate.__class__.__name__ in ['Container', 'Horizontal', 'Vertical', 'ScrollableContainer'] and 
+                not getattr(candidate, 'id', None) and 
+                not getattr(candidate, 'classes', set())):
+                continue
+            widget = candidate
+            break
         
         # If we're hovering over a different widget or no widget
         if widget != self.hovered_widget:

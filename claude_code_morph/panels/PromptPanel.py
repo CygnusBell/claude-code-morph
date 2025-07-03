@@ -48,28 +48,12 @@ class PromptPanel(BasePanel):
     ]
     
     CSS = BasePanel.DEFAULT_CSS + """
-    /* CSS Updated: 2025-07-02 22:47 - Queue items now height: 1 */
+    /* CSS Updated: Fixed layout structure */
     PromptPanel {
         layout: vertical;
-        height: 99%;
+        height: 100%;
         margin: 0;
         padding: 0;
-    }
-    
-    PromptPanel .prompt-content {
-        height: 1fr;
-        width: 100%;
-        margin: 0;
-        padding: 0;
-        layout: vertical;
-    }
-    
-    PromptPanel .panel-title {
-        height: 1;
-        padding: 0 1;
-        text-align: center;
-        background: $primary;
-        margin: 0;
     }
     
     PromptPanel #prompt-input {
@@ -79,7 +63,6 @@ class PromptPanel(BasePanel):
         padding: 1;
         background: $surface;
         border: solid $primary;
-        dock: top;
     }
     
     PromptPanel .controls-container {
@@ -198,15 +181,12 @@ class PromptPanel(BasePanel):
     }
     
     /* Prompt queue styles */
-    PromptPanel .prompt-queue-container {
-        height: auto;
-        max-height: 5;
-        min-height: 2;
-        margin: 0;
+    PromptPanel #queue-container {
+        height: 3;
+        margin: 0 1;
         padding: 0;
         background: $surface;
         border: solid $primary;
-        overflow-y: auto;
     }
     
     PromptPanel .prompt-queue-item {
@@ -453,9 +433,8 @@ class PromptPanel(BasePanel):
             yield self.resume_queue_btn
         
         # Prompt queue container - use regular container with fixed height
-        self.queue_container = Container(id="queue-container", classes="prompt-queue-container")
-        self.queue_container.styles.height = 3  # Fixed height of 3 lines
-        self.queue_container.styles.overflow_y = "auto"
+        self.queue_container = Container(id="queue-container")
+        # Height is now set in CSS to 3 lines
         yield self.queue_container
     
     def on_mount(self) -> None:
