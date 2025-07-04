@@ -196,6 +196,9 @@ class MorphPanel(BasePanel):
             await self._reload_current_file()
         elif button_id == "undo-btn":
             await self._undo_changes()
+        else:
+            # Let BasePanel handle other buttons
+            await super().on_button_pressed(event)
     
     async def _save_current_file(self) -> None:
         """Save the current file."""
