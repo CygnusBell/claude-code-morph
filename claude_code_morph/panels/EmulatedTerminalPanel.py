@@ -594,9 +594,19 @@ Please make the requested changes to the Claude Code Morph source code."""
             "ctrl+q",       # Quit
             "ctrl+shift+f", # Safe Mode
             "ctrl+t",       # Reload All
-            "ctrl+shift+c", # Copy
-            "ctrl+shift+v", # Paste
         }
+        
+        # Handle copy/paste shortcuts in the terminal
+        if event.key == "ctrl+shift+c":
+            logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+C")
+            self.action_copy_terminal()
+            event.stop()
+            return
+        elif event.key == "ctrl+shift+v":
+            logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+V")
+            asyncio.create_task(self.action_paste_terminal())
+            event.stop()
+            return
         
         if event.key in app_bindings:
             # Let the event bubble up to the app
@@ -689,7 +699,7 @@ Please make the requested changes to the Claude Code Morph source code."""
             logging.error(f"Error copying terminal content: {e}")
             self.app.notify(f"Copy failed: {str(e)}", severity="error")
             
-    def action_paste_terminal(self) -> None:
+    async def action_paste_terminal(self) -> None:
         """Paste clipboard content into terminal."""
         try:
             # Import clipboard functions from BasePanel

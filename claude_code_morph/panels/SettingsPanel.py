@@ -15,7 +15,6 @@ from textual.widgets.tree import TreeNode
 from textual.reactive import reactive
 from textual.binding import Binding
 from rich.syntax import Syntax
-from rich.text import Text
 
 try:
     from .BasePanel import BasePanel
@@ -272,53 +271,90 @@ class SettingsPanel(BasePanel):
                 # Status bar
                 yield Static("Ready", id="status-bar", classes="status-bar")
                 
-    async def on_mount(self) -> None:
+    def on_mount(self) -> None:
         """Called when panel is mounted."""
-        await super().on_mount()
+        # Call parent on_mount
+        super().on_mount()
+        
+        logging.info(f"SettingsPanel.on_mount called, config_files: {len(self.config_files)}")
         
         # Build the file tree
-        tree = self.query_one("#config-tree", Tree)
-        tree.clear()
+        try:
+            tree = self.query_one("#config-tree", Tree)
+            logging.info(f"Found tree widget: {tree}, is_mounted: {tree.is_mounted}")
+            # Don't clear the tree, just remove all children from root
+            tree.root.remove_children()
+            logging.info(f"Tree root children removed, root label: {tree.root.label}")
+        except Exception as e:
+            logging.error(f"Error getting tree widget: {e}")
+            return
         
         # Add global settings
         global_node = tree.root.add("🌍 Global Settings (~/.claude/)")
+        logging.info(f"Added global node: {global_node.label}")
+        
+        global_count = 0
         for key, config in self.config_files.items():
             if key.startswith("global/"):
                 icon = "📄" if config.exists else "⚠️"
-                node = global_node.add(f"{icon} {config.display_name}", data=key)
+                label = f"{icon} {config.display_name}"
                 if not config.exists:
-                    node.label = Text(f"{icon} {config.display_name} (not found)", style="dim")
+                    label += " (not found)"
                 elif not config.is_readable:
-                    node.label = Text(f"{icon} {config.display_name} (no read permission)", style="red")
+                    label += " (no read permission)"
+                node = global_node.add(label, data=key)
+                global_count += 1
+                logging.info(f"Added global config: {key} -> {label}")
+        logging.info(f"Added {global_count} global configs")
         
         # Add application settings
         app_node = tree.root.add("🚀 Application Settings")
         for key, config in self.config_files.items():
             if key.startswith("app/"):
                 icon = "📄" if config.exists else "⚠️"
-                node = app_node.add(f"{icon} {config.display_name}", data=key)
+                label = f"{icon} {config.display_name}"
                 if not config.exists:
-                    node.label = Text(f"{icon} {config.display_name} (not found)", style="dim")
+                    label += " (not found)"
+                node = app_node.add(label, data=key)
         
         # Add project settings
         project_node = tree.root.add(f"📁 Project Settings ({Path.cwd().name})")
         for key, config in self.config_files.items():
             if key.startswith("project/"):
                 icon = "📄" if config.exists else "⚠️"
-                node = project_node.add(f"{icon} {config.display_name}", data=key)
+                label = f"{icon} {config.display_name}"
                 if not config.exists:
-                    node.label = Text(f"{icon} {config.display_name} (not found)", style="dim")
+                    label += " (not found)"
+                node = project_node.add(label, data=key)
         
         # Expand all nodes
+        logging.info(f"Expanding {len(tree.root.children)} root children")
         for node in tree.root.children:
             node.expand()
+            logging.info(f"Expanded node: {node.label} with {len(node.children)} children")
+        
+        # Force tree to refresh
+        tree.refresh()
+        logging.info("Tree refreshed")
+        
+        # Also manually set focus to ensure it's interactive
+        self.set_timer(0.1, lambda: tree.focus())
+        
+    def populate_tree(self) -> None:
+        """Manually populate the tree - can be called if on_mount fails."""
+        logging.info("populate_tree called")
+        try:
+            tree = self.query_one("#config-tree", Tree)
+            self.on_mount()  # Just call on_mount again
+        except Exception as e:
+            logging.error(f"Error in populate_tree: {e}")
             
-    async def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         """Handle tree node selection."""
         if event.node.data:
-            await self.load_config_file(event.node.data)
+            self.load_config_file(event.node.data)
             
-    async def load_config_file(self, file_key: str) -> None:
+    def load_config_file(self, file_key: str) -> None:
         """Load a configuration file into the editor."""
         config = self.config_files.get(file_key)
         if not config:
@@ -437,7 +473,7 @@ optimizer_api: groq
         
         return templates.get(config.display_name, "{}")
         
-    async def on_text_area_changed(self, event: TextArea.Changed) -> None:
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Handle text changes in the editor."""
         if self.current_file and self.original_content is not None:
             editor = self.query_one("#config-editor", TextArea)
@@ -449,18 +485,18 @@ optimizer_api: groq
             else:
                 status.update("✓ No changes")
                 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
         if event.button.id == "save-btn":
-            await self.action_save_file()
+            self.action_save_file()
         elif event.button.id == "reload-btn":
-            await self.action_reload_file()
+            self.action_reload_file()
         elif event.button.id == "validate-btn":
-            await self.validate_current_file()
+            self.validate_current_file()
         elif event.button.id == "backup-btn":
-            await self.action_backup_file()
+            self.action_backup_file()
             
-    async def action_save_file(self) -> None:
+    def action_save_file(self) -> None:
         """Save the current file."""
         if not self.current_file:
             self.notify("No file selected", severity="warning")
@@ -502,14 +538,14 @@ optimizer_api: groq
             self.notify(f"Saved {self.current_file.display_name}", severity="success")
             
             # Refresh tree to update icons
-            await self.on_mount()
+            self.on_mount()
             
         except Exception as e:
             status.update(f"❌ Save failed: {e}")
             self.notify(f"Failed to save: {e}", severity="error")
             logging.error(f"Error saving config file: {e}")
             
-    async def action_reload_file(self) -> None:
+    def action_reload_file(self) -> None:
         """Reload the current file from disk."""
         if not self.current_file:
             self.notify("No file selected", severity="warning")
@@ -519,12 +555,12 @@ optimizer_api: groq
             # TODO: Add confirmation dialog
             pass
             
-        await self.load_config_file(
+        self.load_config_file(
             next(k for k, v in self.config_files.items() if v == self.current_file)
         )
         self.notify("File reloaded", severity="information")
         
-    async def action_backup_file(self) -> None:
+    def action_backup_file(self) -> None:
         """Create a backup of the current file."""
         if not self.current_file or not self.current_file.exists:
             self.notify("No file to backup", severity="warning")
@@ -540,7 +576,7 @@ optimizer_api: groq
         except Exception as e:
             self.notify(f"Backup failed: {e}", severity="error")
             
-    async def validate_current_file(self) -> None:
+    def validate_current_file(self) -> None:
         """Validate the current file content."""
         if not self.current_file:
             return
