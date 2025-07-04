@@ -145,7 +145,11 @@ class ContextManager:
         
         # Create or get collection
         try:
-            self.collection = self.client.get_collection("context")
+            try:
+                self.collection = self.client.get_collection("context")
+            except Exception:
+                # Collection doesn't exist, create it
+                self.collection = self.client.get_or_create_collection("context")
             logger.info("Using existing context collection")
         except ValueError:
             self.collection = self.client.create_collection(
