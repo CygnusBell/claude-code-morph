@@ -663,13 +663,20 @@ Please make the requested changes to the Claude Code Morph source code."""
     
     async def on_key(self, event: Key) -> None:
         """Handle keyboard input and send to Claude process with optimized performance."""
+        # Debug logging for arrow keys specifically
+        if event.key in ["up", "down"]:
+            logging.info(f"ARROW KEY DEBUG: Received '{event.key}' in on_key, has_focus={self.has_focus}")
+            
         # Check if screen_display exists
         if not hasattr(self, 'screen_display') or not self.screen_display:
             return
             
         # Only handle keys if this panel has focus (is visible and active)
         if not self.has_focus:
-            logging.debug(f"EmulatedTerminalPanel: Ignoring key '{event.key}' - panel not focused")
+            if event.key in ["up", "down"]:
+                logging.info(f"ARROW KEY DEBUG: Ignoring '{event.key}' - panel not focused")
+            else:
+                logging.debug(f"EmulatedTerminalPanel: Ignoring key '{event.key}' - panel not focused")
             return
             
         # Handle escape key as a regular terminal input
@@ -732,7 +739,11 @@ Please make the requested changes to the Claude Code Morph source code."""
         if key_sequence:
             # Send special key sequences (including arrow keys) to Claude
             self.claude_process.send(key_sequence)
-            logging.debug(f"Sent special key '{event.key}' as sequence '{repr(key_sequence)}' to Claude")
+            # Extra logging for arrow keys to debug the issue
+            if event.key in ["up", "down"]:
+                logging.info(f"ARROW KEY DEBUG: Sent '{event.key}' as sequence '{repr(key_sequence)}' to Claude process")
+            else:
+                logging.debug(f"Sent special key '{event.key}' as sequence '{repr(key_sequence)}' to Claude")
         elif event.character and len(event.character) == 1:
             # Direct character send for regular keys
             self.claude_process.send(event.character)
