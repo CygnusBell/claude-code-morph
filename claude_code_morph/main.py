@@ -10,6 +10,8 @@ import importlib.util
 import signal
 import logging
 import warnings
+import threading
+import atexit
 from pathlib import Path
 from typing import Dict, List, Optional, Type
 from textual.app import App, ComposeResult
@@ -228,6 +230,10 @@ class ClaudeCodeMorph(App):
         self.panels: Dict[str, object] = {}
         self.current_workspace: Optional[str] = None
         
+        # Track if we're shutting down to prevent duplicate cleanup
+        self._shutting_down = False
+        self._force_exit_count = 0
+        
         # Use morph source directory for internal files
         self.morph_source = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent))
         self.panels_dir = self.morph_source / "panels"
@@ -239,6 +245,9 @@ class ClaudeCodeMorph(App):
         
         # Set up error logging
         self._setup_error_logging()
+        
+        # Set up signal handlers for emergency exit
+        self._setup_signal_handlers()
         
         # Hot-reloading disabled - use F5 for manual reload
         # self.observer = Observer()
@@ -300,6 +309,65 @@ class ClaudeCodeMorph(App):
             f.write(f"\n{'='*60}\n")
             f.write(f"Application started at {datetime.now()}\n")
             f.write(f"{'='*60}\n")
+    
+    def _setup_signal_handlers(self) -> None:
+        """Set up signal handlers for emergency exit."""
+        # Store reference to self for signal handler
+        app_ref = self
+        
+        def emergency_exit(signum, frame):
+            """Handle emergency exit on signal."""
+            try:
+                app_ref._force_exit_count += 1
+                
+                if app_ref._force_exit_count == 1:
+                    logging.warning(f"Received signal {signum}, attempting graceful shutdown...")
+                    print("\n\n🛑 Interrupt received! Attempting graceful shutdown...")
+                    print("Press Ctrl+C again to force immediate exit.")
+                    
+                    # Try graceful shutdown in a thread-safe way
+                    try:
+                        # Use call_from_thread to safely interact with the app
+                        if hasattr(app_ref, 'call_from_thread'):
+                            app_ref.call_from_thread(app_ref.exit)
+                        else:
+                            # Fallback to direct exit
+                            app_ref.exit()
+                    except Exception as e:
+                        logging.error(f"Error during graceful shutdown: {e}")
+                        
+                    # Schedule forced exit after 3 seconds if graceful fails
+                    def force_exit():
+                        if not app_ref._shutting_down:
+                            print("\n⚠️  Graceful shutdown failed, forcing exit...")
+                            try:
+                                app_ref._emergency_cleanup()
+                            except:
+                                pass
+                            os._exit(1)
+                    
+                    timer = threading.Timer(3.0, force_exit)
+                    timer.daemon = True
+                    timer.start()
+                    
+                elif app_ref._force_exit_count >= 2:
+                    print("\n💥 Force exit requested!")
+                    try:
+                        app_ref._emergency_cleanup()
+                    except:
+                        pass
+                    os._exit(1)
+            except Exception as e:
+                # If anything fails in signal handler, just force exit
+                print(f"\n❌ Signal handler error: {e}")
+                os._exit(1)
+        
+        # Register handlers
+        signal.signal(signal.SIGINT, emergency_exit)
+        signal.signal(signal.SIGTERM, emergency_exit)
+        
+        # Also register atexit handler
+        atexit.register(lambda: self._cleanup_on_exit())
         
     def notify(
         self,
@@ -1424,21 +1492,40 @@ class ClaudeCodeMorph(App):
     
     async def action_quit(self) -> None:
         """Clean up resources before quitting."""
+        if self._shutting_down:
+            # Already shutting down, force exit
+            os._exit(0)
+            
+        self._shutting_down = True
+        logging.info("Starting graceful shutdown...")
+        
         try:
+            # Save session first
+            self._save_session()
+            
+            # Clean up all panels
+            for panel_id, panel in self.panels.items():
+                if hasattr(panel, 'cleanup'):
+                    try:
+                        logging.info(f"Cleaning up panel: {panel_id}")
+                        panel.cleanup()
+                    except Exception as e:
+                        logging.error(f"Error cleaning up panel {panel_id}: {e}")
+            
             # Clean up context integration
             if self.context_integration:
                 logging.info("Cleaning up context integration...")
-                await self.context_integration.cleanup()
-            
-            # Save session before quitting
-            self._save_session()
+                try:
+                    await self.context_integration.cleanup()
+                except Exception as e:
+                    logging.error(f"Error cleaning up context integration: {e}")
             
             # Call parent quit
             await super().action_quit()
         except Exception as e:
             logging.error(f"Error during cleanup: {e}")
-            # Quit anyway
-            await super().action_quit()
+            # Force quit
+            os._exit(1)
         
     def _log_widget_tree(self, widget=None, level=0):
         """Log the widget tree for debugging."""
@@ -1490,6 +1577,58 @@ class ClaudeCodeMorph(App):
         #         self.observer.join(timeout=1.0)
         # except Exception as e:
         #     logging.warning(f"Error stopping file watcher: {e}")
+    
+    def _emergency_cleanup(self) -> None:
+        """Emergency cleanup when force exiting."""
+        if self._shutting_down:
+            return
+            
+        self._shutting_down = True
+        logging.warning("Performing emergency cleanup...")
+        
+        try:
+            # Save session if possible
+            if hasattr(self, 'session_manager'):
+                try:
+                    self._save_session()
+                except:
+                    pass
+            
+            # Stop all terminal panels
+            for panel_id, panel in self.panels.items():
+                try:
+                    if hasattr(panel, 'terminal_process'):
+                        if panel.terminal_process and panel.terminal_process.isalive():
+                            panel.terminal_process.terminate(force=True)
+                    if hasattr(panel, 'cleanup'):
+                        panel.cleanup()
+                except:
+                    pass
+            
+            # Stop context file watcher if running
+            if hasattr(self, 'context_integration') and self.context_integration:
+                try:
+                    if hasattr(self.context_integration, 'stop_watching'):
+                        self.context_integration.stop_watching()
+                except:
+                    pass
+                    
+        except Exception as e:
+            logging.error(f"Error during emergency cleanup: {e}")
+    
+    def _cleanup_on_exit(self) -> None:
+        """Normal cleanup on exit."""
+        if self._shutting_down:
+            return
+            
+        self._shutting_down = True
+        logging.info("Performing normal cleanup...")
+        
+        try:
+            # Save session
+            self._save_session()
+        except:
+            pass
 
 def main():
     """Entry point for Claude Code Morph."""

@@ -128,6 +128,41 @@ class EmulatedTerminalPanel(BasePanel):
         
         # Focus the panel to receive keyboard input
         self.focus()
+    
+    def cleanup(self) -> None:
+        """Clean up resources when panel is being destroyed."""
+        logging.info("EmulatedTerminalPanel cleanup called")
+        
+        # Stop the reading thread
+        self.running = False
+        
+        # Terminate the Claude process
+        if self.claude_process:
+            try:
+                if self.claude_process.isalive():
+                    # Send exit command first
+                    try:
+                        self.claude_process.sendline('/exit')
+                        time.sleep(0.1)
+                    except:
+                        pass
+                    
+                    # Then terminate
+                    self.claude_process.terminate(force=True)
+                    self.claude_process = None
+            except Exception as e:
+                logging.error(f"Error terminating Claude process: {e}")
+        
+        # Wait for reader thread to finish
+        if self.reader_thread and self.reader_thread.is_alive():
+            self.reader_thread.join(timeout=1.0)
+            
+        # Clear the output queue
+        while not self.output_queue.empty():
+            try:
+                self.output_queue.get_nowait()
+            except:
+                break
         
     async def start_claude_cli(self) -> None:
         """Start the Claude CLI process using pexpect."""
