@@ -647,10 +647,16 @@ Please make the requested changes to the Claude Code Morph source code."""
         
     # Optimized key mapping dictionary for fast lookups
     _KEY_MAP = {
+        # Arrow keys - multiple names to handle different Textual versions
         "up": '\x1b[A',
         "down": '\x1b[B', 
         "left": '\x1b[D',
         "right": '\x1b[C',
+        "arrow_up": '\x1b[A',
+        "arrow_down": '\x1b[B', 
+        "arrow_left": '\x1b[D',
+        "arrow_right": '\x1b[C',
+        # Other keys
         "home": '\x01',
         "end": '\x05',
         "backspace": '\x7f',
@@ -700,7 +706,8 @@ Please make the requested changes to the Claude Code Morph source code."""
             event.stop()
             return
             
-        # Handle selection keys - allow TextArea to handle them for text selection
+        # Handle selection keys - ONLY shift+arrow keys and ctrl+a for text selection
+        # Regular arrow keys should go to Claude CLI
         selection_keys = {
             "shift+up", "shift+down", "shift+left", "shift+right",
             "shift+home", "shift+end", "shift+pageup", "shift+pagedown",
@@ -711,6 +718,7 @@ Please make the requested changes to the Claude Code Morph source code."""
             # Allow selection keys to pass through to TextArea for text selection
             # Don't send these to Claude process - they're for UI interaction only
             # Don't stop the event so TextArea can handle selection
+            logging.debug(f"Allowing selection key '{event.key}' to pass through to TextArea")
             return
             
         if not self.claude_process or not self.claude_process.isalive():
@@ -738,19 +746,31 @@ Please make the requested changes to the Claude Code Morph source code."""
         key_sequence = self._KEY_MAP.get(event.key)
         if key_sequence:
             # Send special key sequences (including arrow keys) to Claude
-            self.claude_process.send(key_sequence)
-            # Extra logging for arrow keys to debug the issue
-            if event.key in ["up", "down"]:
-                logging.info(f"ARROW KEY DEBUG: Sent '{event.key}' as sequence '{repr(key_sequence)}' to Claude process")
-            else:
-                logging.debug(f"Sent special key '{event.key}' as sequence '{repr(key_sequence)}' to Claude")
+            try:
+                # Ensure the sequence is sent as bytes for proper terminal handling
+                if isinstance(key_sequence, str):
+                    key_sequence_bytes = key_sequence.encode('utf-8')
+                    self.claude_process.send(key_sequence_bytes)
+                else:
+                    self.claude_process.send(key_sequence)
+                
+                # Extra logging for arrow keys to debug the issue
+                if event.key in ["up", "down", "arrow_up", "arrow_down"]:
+                    logging.info(f"ARROW KEY DEBUG: Sent '{event.key}' as sequence '{repr(key_sequence)}' (bytes: {repr(key_sequence_bytes) if isinstance(key_sequence, str) else repr(key_sequence)}) to Claude process")
+                else:
+                    logging.debug(f"Sent special key '{event.key}' as sequence '{repr(key_sequence)}' to Claude")
+            except Exception as e:
+                logging.error(f"Error sending key sequence for '{event.key}': {e}")
         elif event.character and len(event.character) == 1:
             # Direct character send for regular keys
             self.claude_process.send(event.character)
             logging.debug(f"Sent character '{event.character}' to Claude")
         else:
-            # Log unhandled keys for debugging
-            logging.debug(f"Unhandled key event: '{event.key}' (character: {repr(event.character)})")
+            # Log unhandled keys for debugging - especially arrow keys
+            if event.key in ["up", "down", "arrow_up", "arrow_down", "cursor_up", "cursor_down"]:
+                logging.info(f"ARROW KEY DEBUG: Unhandled arrow key event: '{event.key}' (character: {repr(event.character)})")
+            else:
+                logging.debug(f"Unhandled key event: '{event.key}' (character: {repr(event.character)})")
             
         event.stop()
         
