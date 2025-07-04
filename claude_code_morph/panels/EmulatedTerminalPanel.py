@@ -128,9 +128,10 @@ class EmulatedTerminalPanel(BasePanel):
                     id="terminal-screen",
                     read_only=True,
                     show_line_numbers=False,
-                    tab_behavior="focus",
-                    can_focus=False  # Don't capture focus by default
+                    tab_behavior="focus"
                 )
+                # Set can_focus after creation
+                self.screen_display.can_focus = False
                 # Store original write method
                 self._textarea_set_text = self.screen_display.load_text
                 # Add write method for compatibility
