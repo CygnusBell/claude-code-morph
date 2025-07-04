@@ -745,17 +745,46 @@ Please make the requested changes to the Claude Code Morph source code."""
         # TextArea is always display-only, no need to manage its focus
         # All input is handled by the Panel directly
             
-        # TEMPORARY DEBUG: Map arrow keys to numbers that should work for testing
+        # CLAUDE CLI MENU NAVIGATION: Try multiple sequence formats for menu navigation
         if event.key in ["up", "down"]:
-            logging.info(f"🧪 DEBUG MODE: Mapping '{event.key}' to number for testing")
+            logging.info(f"🎯 ARROW KEY: Trying Claude CLI menu navigation for '{event.key}'")
+            
+            # Try different sequences that CLI menus commonly use
+            sequences_to_try = []
+            
             if event.key == "up":
-                # Send "1" for up arrow (select option 1)
-                self.claude_process.send("1")
-                logging.info(f"🧪 Sent '1' for up arrow as test")
+                sequences_to_try = [
+                    '\x1b[A',      # Standard up arrow
+                    '\x1bOA',      # Application mode up
+                    '\x10',        # Ctrl+P (previous)
+                    'k',           # vi-style up
+                    '\x1b[1A',     # Extended up arrow
+                ]
             elif event.key == "down":
-                # Send "2" for down arrow (select option 2)
-                self.claude_process.send("2")
-                logging.info(f"🧪 Sent '2' for down arrow as test")
+                sequences_to_try = [
+                    '\x1b[B',      # Standard down arrow  
+                    '\x1bOB',      # Application mode down
+                    '\x0e',        # Ctrl+N (next)
+                    'j',           # vi-style down
+                    '\x1b[1B',     # Extended down arrow
+                ]
+            
+            # Try each sequence until one works
+            for i, seq in enumerate(sequences_to_try):
+                try:
+                    if isinstance(seq, str):
+                        seq_bytes = seq.encode('utf-8')
+                        self.claude_process.send(seq_bytes)
+                        logging.info(f"🎯 Sent sequence #{i+1} for '{event.key}': {repr(seq)}")
+                        break  # Only send the first sequence for now
+                    else:
+                        self.claude_process.send(seq)
+                        logging.info(f"🎯 Sent sequence #{i+1} for '{event.key}': {repr(seq)}")
+                        break
+                except Exception as e:
+                    logging.error(f"Failed to send sequence #{i+1} for '{event.key}': {e}")
+                    continue
+            
             event.stop()
             return
         
