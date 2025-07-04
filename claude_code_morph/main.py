@@ -545,6 +545,9 @@ class ClaudeCodeMorph(App):
         if CONTEXT_AVAILABLE:
             await tabs.add_pane(TabPane("Context", self.context_container, id="context-tab"))
         
+        # Set the default active tab to Main
+        tabs.active = "main-tab"
+        
         # Create footer
         await self.mount(Footer())
         
