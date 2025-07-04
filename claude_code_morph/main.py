@@ -590,6 +590,14 @@ class ClaudeCodeMorph(App):
                         await self._build_main_ui()
                         # Load default workspace
                         await self.load_workspace_file("default.yaml")
+                        
+                        # Ensure main tab is active after timeout recovery
+                        try:
+                            tabs = self.query_one("#tab-container", TabbedContent)
+                            tabs.active = "main-tab"
+                            logging.info("Timeout recovery - set active tab to main-tab")
+                        except Exception as tab_e:
+                            logging.error(f"Could not set tab after timeout recovery: {tab_e}")
                     except Exception as e:
                         logging.error(f"Failed to build UI after timeout: {e}")
                         print(f"\n[ERROR] Failed to build UI: {e}", file=sys.stderr)
@@ -652,6 +660,14 @@ class ClaudeCodeMorph(App):
                     # Load default workspace
                     logging.info("Calling load_workspace_file...")
                     await self.load_workspace_file("default.yaml")
+                    
+                    # Ensure main tab is active for new sessions
+                    try:
+                        tabs = self.query_one("#tab-container", TabbedContent)
+                        tabs.active = "main-tab"
+                        logging.info("No session - set active tab to main-tab")
+                    except Exception as e:
+                        logging.error(f"Could not set default tab for new session: {e}")
             except Exception as e:
                 logging.error(f"Error loading workspace: {e}", exc_info=True)
                 self.notify(f"Error loading workspace: {e}", severity="error")
@@ -1621,8 +1637,17 @@ class ClaudeCodeMorph(App):
         try:
             state = {
                 'workspace': self.current_workspace,
-                'panels': {}
+                'panels': {},
+                'active_tab': None
             }
+            
+            # Save current active tab
+            try:
+                tabs = self.query_one("#tab-container", TabbedContent)
+                state['active_tab'] = tabs.active
+                logging.info(f"Saving active tab: {tabs.active}")
+            except Exception as e:
+                logging.warning(f"Could not save active tab state: {e}")
             
             # Get state from each panel
             for panel_id, panel in self.panels.items():
@@ -1674,6 +1699,31 @@ class ClaudeCodeMorph(App):
                 history = self.session_manager.load_prompt_history()
                 if history:
                     prompt_panel.prompt_history = history
+            
+            # Restore active tab (do this after panels are restored)
+            active_tab = state.get('active_tab')
+            if active_tab:
+                try:
+                    tabs = self.query_one("#tab-container", TabbedContent)
+                    tabs.active = active_tab
+                    logging.info(f"Restored active tab: {active_tab}")
+                except Exception as e:
+                    logging.warning(f"Could not restore active tab {active_tab}: {e}")
+                    # Fallback to main tab if restoration fails
+                    try:
+                        tabs = self.query_one("#tab-container", TabbedContent)
+                        tabs.active = "main-tab"
+                        logging.info("Fallback: Set active tab to main-tab")
+                    except Exception as e2:
+                        logging.error(f"Could not set fallback tab: {e2}")
+            else:
+                # No saved tab state - ensure main tab is active
+                try:
+                    tabs = self.query_one("#tab-container", TabbedContent)
+                    tabs.active = "main-tab"
+                    logging.info("No saved tab state - defaulting to main-tab")
+                except Exception as e:
+                    logging.error(f"Could not set default tab: {e}")
                     
             self.notify("Session restored", severity="success")
             logging.info("Session restored successfully")
