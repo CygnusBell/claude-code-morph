@@ -117,6 +117,12 @@ class EmulatedTerminalPanel(BasePanel):
         self._cached_screen_text = ""
         self._screen_dirty = True
         
+        # Display update optimization
+        self._last_displayed_content = ""
+        self._update_pending = False
+        self._last_update_time = 0
+        self._min_update_interval = 0.05  # Minimum 50ms between updates
+        
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
         logging.debug("EmulatedTerminalPanel.compose_content called")
@@ -444,19 +450,43 @@ class EmulatedTerminalPanel(BasePanel):
         return self._cached_screen_text
         
     def _update_display(self) -> None:
-        """Update the display with optimized screen rendering."""
+        """Update the display with optimized screen rendering and change detection."""
         try:
+            import time
+            current_time = time.time()
+            
+            # Implement update debouncing to reduce flickering
+            if self._update_pending:
+                return
+                
+            time_since_last_update = current_time - self._last_update_time
+            if time_since_last_update < self._min_update_interval:
+                # Schedule delayed update if too soon since last update
+                self._update_pending = True
+                def delayed_update():
+                    self._update_pending = False
+                    self._update_display()
+                self.set_timer(self._min_update_interval - time_since_last_update, delayed_update)
+                return
+            
             # Mark screen as dirty for next _get_screen_text call
             self._screen_dirty = True
             
             # Use optimized screen text extraction
             screen_content = self._get_screen_text()
             
-            # Update TextArea with the full screen content
-            self.screen_display.load_text(screen_content)
-            
-            # Scroll to bottom
-            self.screen_display.cursor_location = (self.screen_display.document.line_count - 1, 0)
+            # Only update if content has actually changed
+            if screen_content != self._last_displayed_content:
+                # Update TextArea with the new content
+                self.screen_display.load_text(screen_content)
+                self._last_displayed_content = screen_content
+                self._last_update_time = current_time
+                
+                # Scroll to bottom
+                self.screen_display.cursor_location = (self.screen_display.document.line_count - 1, 0)
+            else:
+                # Content unchanged, just update the timestamp to prevent excessive checks
+                self._last_update_time = current_time
             
             # Get lines for prompt detection
             lines = screen_content.split('\n')
