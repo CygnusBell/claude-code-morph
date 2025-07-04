@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Static, RichLog
+from textual.widgets import Static, RichLog, TextArea
 from textual.binding import Binding
 from textual.events import Key
 import re
@@ -52,15 +52,22 @@ class EmulatedTerminalPanel(BasePanel):
         height: 1fr;
         background: #0c0c0c;
         color: #f0f0f0;
-        padding: 0 1;
+        padding: 1;
         border: none;
-        overflow-y: scroll;
-        font-family: monospace;
         margin: 0;
     }
     
     #terminal-screen:focus {
         border: none;
+    }
+    
+    #terminal-screen .text-area--cursor {
+        background: #f0f0f0;
+        color: #0c0c0c;
+    }
+    
+    #terminal-screen .text-area--selection {
+        background: #4a4a4a;
     }
     
     #terminal-status {
@@ -108,24 +115,37 @@ class EmulatedTerminalPanel(BasePanel):
         """Create the terminal panel layout."""
         logging.debug("EmulatedTerminalPanel.compose_content called")
         with Vertical(id="emulated-terminal-container"):
-            # Terminal screen display with scrolling
-            self.screen_display = RichLog(
-                highlight=False,
-                markup=True,
-                wrap=True,
+            # Use TextArea for better selection support
+            self.screen_display = TextArea(
+                "",
+                language=None,
+                theme="monokai",
                 id="terminal-screen",
-                auto_scroll=True
+                read_only=True,
+                show_line_numbers=False,
+                tab_behavior="focus"
             )
+            # Store original write method
+            self._textarea_set_text = self.screen_display.load_text
+            # Add write method for compatibility
+            self.screen_display.write = self._write_to_textarea
             yield self.screen_display
             
             self.status = Static("Status: Initializing...", id="terminal-status")
             yield self.status
             
+    def _write_to_textarea(self, text: str) -> None:
+        """Write text to TextArea, appending to existing content."""
+        # This is only used for initial messages, the real terminal content
+        # comes from _update_display which uses the pyte screen
+        pass  # We'll update the display through _update_display instead
+            
     async def on_mount(self) -> None:
         """Called when panel is mounted."""
-        self.screen_display.write("[yellow]Starting Claude CLI...[/yellow]")
+        # Show initial message
+        self.screen_display.load_text("Starting Claude CLI...\n")
         working_dir = self.working_dir if self.working_dir else os.getcwd()
-        self.screen_display.write(f"[dim]Working directory: {working_dir}[/dim]")
+        self.screen_display.load_text(f"Starting Claude CLI...\nWorking directory: {working_dir}\n")
         
         # Start Claude CLI process
         await self.start_claude_cli()
@@ -401,20 +421,19 @@ class EmulatedTerminalPanel(BasePanel):
             
             # Use optimized screen text extraction
             screen_content = self._get_screen_text()
+            
+            # Update TextArea with the full screen content
+            self.screen_display.load_text(screen_content)
+            
+            # Scroll to bottom
+            self.screen_display.cursor_location = (self.screen_display.document.line_count - 1, 0)
+            
+            # Get lines for prompt detection
             lines = screen_content.split('\n')
             
             # Remove trailing empty lines efficiently
             while lines and not lines[-1]:
                 lines.pop()
-                
-            # Clear and rewrite the display for pyte terminal emulation
-            # This is necessary because pyte maintains the full screen state
-            self.screen_display.clear()
-            
-            # Batch write non-empty lines
-            non_empty_lines = [line for line in lines if line]
-            for line in non_empty_lines:
-                self.screen_display.write(line)
                 
             # Optimize prompt detection by checking only last few lines
             if lines:
@@ -584,6 +603,38 @@ Please make the requested changes to the Claude Code Morph source code."""
     
     async def on_key(self, event: Key) -> None:
         """Handle keyboard input and send to Claude process with optimized performance."""
+        # Handle copy shortcuts
+        if event.key == "ctrl+shift+c":
+            logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+C")
+            self.action_copy_terminal()
+            event.stop()
+            return
+        elif event.key == "ctrl+c" and hasattr(self.screen_display, 'selected_text') and self.screen_display.selected_text:
+            # If there's selected text, copy it
+            logging.info("EmulatedTerminalPanel: Handling Ctrl+C with selection")
+            self.action_copy_terminal()
+            event.stop()
+            return
+        elif event.key == "ctrl+shift+v":
+            logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+V")
+            asyncio.create_task(self.action_paste_terminal())
+            event.stop()
+            return
+            
+        # Let TextArea handle selection keys
+        selection_keys = {
+            "shift+up", "shift+down", "shift+left", "shift+right",
+            "shift+home", "shift+end", "shift+pageup", "shift+pagedown",
+            "ctrl+a",  # Select all
+            "ctrl+c",  # Copy (let TextArea handle it)
+            "ctrl+x",  # Cut (won't work in read-only)
+            "ctrl+v",  # Paste (won't work in read-only)
+        }
+        
+        if event.key in selection_keys:
+            # Let the TextArea handle selection
+            return
+            
         if not self.claude_process or not self.claude_process.isalive():
             return
             
@@ -595,18 +646,6 @@ Please make the requested changes to the Claude Code Morph source code."""
             "ctrl+shift+f", # Safe Mode
             "ctrl+t",       # Reload All
         }
-        
-        # Handle copy/paste shortcuts in the terminal
-        if event.key == "ctrl+shift+c":
-            logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+C")
-            self.action_copy_terminal()
-            event.stop()
-            return
-        elif event.key == "ctrl+shift+v":
-            logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+V")
-            asyncio.create_task(self.action_paste_terminal())
-            event.stop()
-            return
         
         if event.key in app_bindings:
             # Let the event bubble up to the app
@@ -679,11 +718,38 @@ Please make the requested changes to the Claude Code Morph source code."""
             
     def get_copyable_content(self) -> str:
         """Get the terminal screen content for copying."""
+        # If there's a selection in the TextArea, use that
+        if hasattr(self, 'screen_display') and self.screen_display:
+            if hasattr(self.screen_display, 'selected_text'):
+                selection = self.screen_display.selected_text
+                if selection:
+                    return selection
+            elif hasattr(self.screen_display, 'selection'):
+                # Try to get text from selection
+                start = self.screen_display.selection.start
+                end = self.screen_display.selection.end
+                if start != end:
+                    text = self.screen_display.text
+                    return text[start:end]
+        # Otherwise return all content
         return self._get_screen_text()
         
     def get_selected_content(self) -> str:
-        """Get selected content from terminal. Currently returns all content."""
-        # Terminal doesn't have selection, so return all content
+        """Get selected content from terminal."""
+        # Get selection from TextArea
+        if hasattr(self, 'screen_display') and self.screen_display:
+            if hasattr(self.screen_display, 'selected_text'):
+                selection = self.screen_display.selected_text
+                if selection:
+                    return selection
+            elif hasattr(self.screen_display, 'selection'):
+                # Try to get text from selection
+                start = self.screen_display.selection.start
+                end = self.screen_display.selection.end
+                if start != end:
+                    text = self.screen_display.text
+                    return text[start:end]
+        # Fall back to all content
         return self.get_copyable_content()
         
     def action_copy_terminal(self) -> None:
