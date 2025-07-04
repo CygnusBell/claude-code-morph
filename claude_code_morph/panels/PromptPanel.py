@@ -879,6 +879,13 @@ Output only the enhanced prompt, nothing else."""
         # Return the current prompt text
         return self.prompt_input.text if hasattr(self, 'prompt_input') else ""
     
+    def set_prompt(self, text: str) -> None:
+        """Set the prompt text programmatically."""
+        if hasattr(self, 'prompt_input'):
+            self.prompt_input.text = text
+            self.prompt_input.focus()
+            logging.info(f"Prompt set: {len(text)} characters")
+    
     def on_focus(self, event) -> None:
         """Handle focus event to ensure copy shortcuts work."""
         # Make sure our bindings are active when focused
