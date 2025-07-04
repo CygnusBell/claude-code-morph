@@ -624,6 +624,10 @@ Please make the requested changes to the Claude Code Morph source code."""
         if not hasattr(self, 'screen_display') or not self.screen_display:
             return
             
+        # Only handle keys if this panel has focus (is visible and active)
+        if not self.has_focus:
+            return
+            
         # Handle escape to return focus to panel
         if event.key == "escape" and self.screen_display.has_focus:
             self.screen_display.can_focus = False
