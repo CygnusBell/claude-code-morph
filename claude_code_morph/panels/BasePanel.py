@@ -74,7 +74,7 @@ class BasePanel(Static):
     .panel-name {
         width: 1fr;
         text-align: left;
-        color: $text-muted;
+        color: #a0a0a0;  /* Visible muted text */
         text-style: italic;
     }
     

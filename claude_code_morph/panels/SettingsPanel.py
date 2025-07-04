@@ -49,6 +49,7 @@ class SettingsPanel(BasePanel):
     SettingsPanel {
         background: $surface;
         layout: horizontal;
+        height: 100%;
     }
     
     SettingsPanel .file-browser {
@@ -57,55 +58,81 @@ class SettingsPanel(BasePanel):
         height: 100%;
         background: $panel;
         border-right: solid $primary;
-        padding: 1;
+        padding: 1 2;
+    }
+    
+    SettingsPanel .file-browser Label.header {
+        text-style: bold;
+        color: $text;
+        margin: 0 0 1 0;
+        padding: 1 0;
     }
     
     SettingsPanel .editor-container {
         width: 65%;
         height: 100%;
-        padding: 1;
+        padding: 1 2;
+        layout: vertical;
     }
     
     SettingsPanel .editor-header {
-        height: 5;
-        background: $boost;
-        padding: 0 1;
+        height: auto;
+        background: transparent;
+        padding: 0;
         margin-bottom: 1;
+        layout: vertical;
+    }
+    
+    SettingsPanel #current-file-label {
+        text-style: bold;
+        color: $text;
+        margin: 0 0 1 0;
     }
     
     SettingsPanel .editor-description {
         color: $text-muted;
-        margin-top: 0;
+        margin: 0 0 1 0;
+        text-style: italic;
     }
     
     SettingsPanel .code-editor {
         height: 1fr;
         background: $surface-lighten-1;
-        border: solid $primary;
+        border: tall $primary;
+        padding: 1;
     }
     
     SettingsPanel Tree {
-        height: 100%;
+        height: 1fr;
         background: transparent;
+        padding: 0;
+        color: $text;
+    }
+    
+    SettingsPanel Tree > TreeNode {
+        color: $text;
     }
     
     SettingsPanel .action-buttons {
-        height: 3;
+        height: auto;
         layout: horizontal;
-        margin-top: 1;
+        margin: 1 0;
         align: right;
+        dock: bottom;
     }
     
-    SettingsPanel Button {
-        margin: 0 1;
+    SettingsPanel .action-buttons Button {
+        margin: 0 0 0 1;
+        min-width: 12;
     }
     
     SettingsPanel .status-bar {
-        height: 2;
-        background: $panel;
-        padding: 0 1;
-        margin-top: 1;
+        height: 1;
+        background: transparent;
+        padding: 0;
+        margin: 1 0 0 0;
         color: $text-muted;
+        dock: bottom;
     }
     
     SettingsPanel .error-message {
@@ -210,9 +237,10 @@ class SettingsPanel(BasePanel):
         """Compose the settings panel layout."""
         with Horizontal():
             # File browser
-            with VerticalScroll(classes="file-browser"):
+            with Vertical(classes="file-browser"):
                 yield Label("⚙️  Configuration Files", classes="header")
-                yield Tree("Settings", id="config-tree")
+                with VerticalScroll():
+                    yield Tree("Settings", id="config-tree")
             
             # Editor
             with Vertical(classes="editor-container"):

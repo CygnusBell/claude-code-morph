@@ -74,6 +74,7 @@ class ClaudeCodeMorph(App):
         layout: vertical;
     }
     
+    /* Button styling to ensure consistent appearance */
     Button {
         text-style: none !important;
     }
@@ -94,27 +95,15 @@ class ClaudeCodeMorph(App):
         text-style: none !important;
     }
     
-    #main-container {
+    /* Container styling for main content areas */
+    #main-container, #morph-container, #context-container, #settings-container {
         height: 100%;
         width: 100%;
         background: $surface;
         overflow: auto;
     }
     
-    #morph-container {
-        height: 100%;
-        width: 100%;
-        background: $surface;
-        overflow: auto;
-    }
-    
-    #context-container {
-        height: 100%;
-        width: 100%;
-        background: $surface;
-        overflow: auto;
-    }
-    
+    /* Tab pane layout */
     TabPane {
         height: 100%;
         width: 100%;
@@ -128,6 +117,7 @@ class ClaudeCodeMorph(App):
         width: 100%;
     }
     
+    /* Content switcher for tabs */
     ContentSwitcher {
         height: 1fr !important;
         width: 100%;
@@ -137,11 +127,67 @@ class ClaudeCodeMorph(App):
         height: 1fr !important;
     }
     
+    /* Tab bar styling */
     TabbedContent ContentTabs {
         height: 3;
         dock: top;
+        background: $panel;
     }
     
+    TabbedContent Tabs {
+        height: 3;
+        background: $panel;
+        border-bottom: solid $primary;
+    }
+    
+    /* Tab button styling with proper text visibility */
+    Tab {
+        padding: 0 2;
+        margin: 0 1;
+        height: 3;
+        min-width: 10;
+        color: #f8f8f2;  /* Light text color for visibility */
+        background: $panel;
+        border: none;
+    }
+    
+    Tab:hover {
+        color: #f8f8f2;
+        background: $panel-lighten-2;
+        text-style: none;
+    }
+    
+    Tab.-active {
+        color: #f8f8f2;
+        background: $primary;
+        text-style: bold;
+        border-bottom: thick $secondary;
+    }
+    
+    Tab:focus {
+        color: #f8f8f2;
+        text-style: none;
+        outline: none;
+    }
+    
+    /* Ensure tab labels are visible */
+    Tab Label {
+        color: #f8f8f2;
+        width: 100%;
+        text-align: center;
+        content-align: center middle;
+    }
+    
+    Tab:hover Label {
+        color: #f8f8f2;
+    }
+    
+    Tab.-active Label {
+        color: #f8f8f2;
+        text-style: bold;
+    }
+    
+    /* Panel container styling */
     .panel-container {
         height: 1fr;
         min-height: 5;
@@ -157,6 +203,7 @@ class ClaudeCodeMorph(App):
         background: $surface;
     }
     
+    /* Splitter styling */
     .splitter {
         height: 1;
         background: $boost;
@@ -167,6 +214,7 @@ class ClaudeCodeMorph(App):
         background: $primary;
     }
     
+    /* Panel-specific styling */
     PromptPanel {
         background: $surface;
     }
@@ -182,35 +230,10 @@ class ClaudeCodeMorph(App):
         background: #1e1e1e;
     }
     
-    #tab-container {
-        height: 100%;
-    }
-    
+    /* Main tabbed content */
     TabbedContent {
         background: $surface;
-    }
-    
-    TabPane {
         height: 100%;
-        padding: 0;
-    }
-    
-    Tabs {
-        height: 3;
-        background: $panel;
-    }
-    
-    Tab {
-        padding: 1 3;
-    }
-    
-    Tab:hover {
-        text-style: bold;
-    }
-    
-    Tab.-active {
-        background: $primary;
-        text-style: bold;
     }
     """
     
