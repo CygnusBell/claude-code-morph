@@ -703,9 +703,8 @@ class ClaudeCodeMorph(App):
             from .panels.EmulatedTerminalPanel import EmulatedTerminalPanel
             
             # Create and add panels directly to the ResizableContainer
-            prompt_params = {"id": "morph-prompt-panel"}
+            prompt_params = {}
             terminal_params = {
-                "id": "morph-terminal-panel", 
                 "working_dir": str(morph_source_dir)
             }
             
