@@ -416,6 +416,9 @@ class ClaudeCodeMorph(App):
     async def on_mount(self) -> None:
         """Called when the app starts."""
         logging.info("=== on_mount called ===")
+        logging.info(f"Python executable: {sys.executable}")
+        logging.info(f"Python version: {sys.version}")
+        logging.info(f"CONTEXT_AVAILABLE at startup: {CONTEXT_AVAILABLE}")
         
         # Initialize context integration if available
         if CONTEXT_AVAILABLE and ContextIntegration:
@@ -1213,10 +1216,26 @@ class ClaudeCodeMorph(App):
     def _activate_context_tab(self) -> None:
         """Initialize context tab on first activation or refresh if needed."""
         try:
+            # Double-check context availability at runtime
             if not CONTEXT_AVAILABLE:
-                logging.warning("Context tab activated but dependencies not available")
-                self.notify("Context features require additional dependencies. Run: pip install .[context]", severity="warning")
-                return
+                # Try to import again in case environment changed
+                try:
+                    from .context_manager import CHROMADB_AVAILABLE
+                    if CHROMADB_AVAILABLE:
+                        logging.info("Context dependencies found on retry")
+                        # Update the global flag
+                        global CONTEXT_AVAILABLE
+                        CONTEXT_AVAILABLE = True
+                    else:
+                        logging.warning("Context tab activated but dependencies not available")
+                        import sys
+                        logging.warning(f"Using Python: {sys.executable}")
+                        self.notify("Context features require additional dependencies. Run: source venv/bin/activate && pip install .[context]", severity="warning")
+                        return
+                except ImportError:
+                    logging.warning("Context tab activated but dependencies not available")
+                    self.notify("Context features require additional dependencies. Run: source venv/bin/activate && pip install .[context]", severity="warning")
+                    return
                 
             if not self.context_tab_activated:
                 self.context_tab_activated = True

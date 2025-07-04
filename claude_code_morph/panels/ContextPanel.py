@@ -197,7 +197,11 @@ class ContextPanel(BasePanel):
             return
             
         # Get the data table
-        table = self.query_one("#context-table", DataTable)
+        try:
+            table = self.query_one("#context-table", DataTable)
+        except Exception as e:
+            logging.error(f"Failed to find context table in on_mount: {e}")
+            return
         
         # Configure table
         table.cursor_type = "row"
@@ -220,7 +224,11 @@ class ContextPanel(BasePanel):
         
     def _refresh_table(self) -> None:
         """Refresh the table with current filtered entries."""
-        table = self.query_one("#context-table", DataTable)
+        try:
+            table = self.query_one("#context-table", DataTable)
+        except Exception as e:
+            logging.error(f"Failed to find context table in _refresh_table: {e}")
+            return
         
         # Clear existing rows
         table.clear()
@@ -253,11 +261,14 @@ class ContextPanel(BasePanel):
             )
         
         # Update stats
-        stats_label = self.query_one("#stats-label", Label)
-        stats_label.update(
-            f"Total: {len(self.context_entries)} entries | "
-            f"Shown: {len(self.filtered_entries)}"
-        )
+        try:
+            stats_label = self.query_one("#stats-label", Label)
+            stats_label.update(
+                f"Total: {len(self.context_entries)} entries | "
+                f"Shown: {len(self.filtered_entries)}"
+            )
+        except Exception as e:
+            logging.error(f"Failed to update stats label: {e}")
     
     async def load_context_from_chromadb(self) -> None:
         """Load context entries from ChromaDB."""
@@ -399,8 +410,12 @@ class ContextPanel(BasePanel):
         # Check if we're in the Actions column (column 5)
         if event.coordinate.column == 5 and event.coordinate.row >= 0:
             # Get the row key
-            table = self.query_one("#context-table", DataTable)
-            row_key = table.get_row_at(event.coordinate.row)[0]
+            try:
+                table = self.query_one("#context-table", DataTable)
+                row_key = table.get_row_at(event.coordinate.row)[0]
+            except Exception as e:
+                logging.error(f"Failed to get row in cell highlighted: {e}")
+                return
             
             # Check mouse position within the cell to determine which button
             # This is a simplified version - in a real implementation,
@@ -414,7 +429,11 @@ class ContextPanel(BasePanel):
     def on_click(self, event) -> None:
         """Handle click events for action buttons."""
         # Try to determine if click is on a table cell
-        table = self.query_one("#context-table", DataTable)
+        try:
+            table = self.query_one("#context-table", DataTable)
+        except Exception as e:
+            logging.error(f"Failed to find context table: {e}")
+            return
         
         # Convert click coordinates to table cell
         # This is a simplified approach - might need refinement
@@ -453,8 +472,11 @@ class ContextPanel(BasePanel):
     
     def action_focus_search(self) -> None:
         """Focus the search input."""
-        search_input = self.query_one("#search-input", Input)
-        search_input.focus()
+        try:
+            search_input = self.query_one("#search-input", Input)
+            search_input.focus()
+        except Exception as e:
+            logging.error(f"Failed to focus search input: {e}")
     
     def action_delete_selected(self) -> None:
         """Delete the selected context entry."""

@@ -19,6 +19,14 @@ fi
 
 # Show which Python we're using
 echo "Using Python: $(which python)"
+echo "Python version: $(python --version)"
+
+# Quick dependency check
+if python -c "import chromadb" 2>/dev/null; then
+    echo "✓ Context dependencies available"
+else
+    echo "⚠ Context dependencies not found - run: pip install -e .[context]"
+fi
 
 # Run the application
 exec python -m claude_code_morph "$@"
