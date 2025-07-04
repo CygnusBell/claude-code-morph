@@ -41,6 +41,10 @@ class EmulatedTerminalPanel(BasePanel):
         border: none;
     }
     
+    EmulatedTerminalPanel TextArea {
+        scrollbar-size: 1 1;
+    }
+    
     #emulated-terminal-container {
         layout: vertical;
         height: 100%;
@@ -114,26 +118,31 @@ class EmulatedTerminalPanel(BasePanel):
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
         logging.debug("EmulatedTerminalPanel.compose_content called")
-        with Vertical(id="emulated-terminal-container"):
-            # Use TextArea for better selection support
-            self.screen_display = TextArea(
-                "",
-                language=None,
-                theme="monokai",
-                id="terminal-screen",
-                read_only=True,
-                show_line_numbers=False,
-                tab_behavior="focus",
-                can_focus=False  # Don't capture focus by default
-            )
-            # Store original write method
-            self._textarea_set_text = self.screen_display.load_text
-            # Add write method for compatibility
-            self.screen_display.write = self._write_to_textarea
-            yield self.screen_display
-            
-            self.status = Static("Status: Initializing...", id="terminal-status")
-            yield self.status
+        try:
+            with Vertical(id="emulated-terminal-container"):
+                # Use TextArea for better selection support
+                self.screen_display = TextArea(
+                    "",
+                    language=None,
+                    theme="monokai",
+                    id="terminal-screen",
+                    read_only=True,
+                    show_line_numbers=False,
+                    tab_behavior="focus",
+                    can_focus=False  # Don't capture focus by default
+                )
+                # Store original write method
+                self._textarea_set_text = self.screen_display.load_text
+                # Add write method for compatibility
+                self.screen_display.write = self._write_to_textarea
+                yield self.screen_display
+                
+                self.status = Static("Status: Initializing...", id="terminal-status")
+                yield self.status
+        except Exception as e:
+            logging.error(f"Error in compose_content: {e}", exc_info=True)
+            # Fallback to simple static widget
+            yield Static(f"Error creating terminal: {e}")
             
     def _write_to_textarea(self, text: str) -> None:
         """Write text to TextArea, appending to existing content."""
@@ -143,16 +152,22 @@ class EmulatedTerminalPanel(BasePanel):
             
     async def on_mount(self) -> None:
         """Called when panel is mounted."""
-        # Show initial message
-        self.screen_display.load_text("Starting Claude CLI...\n")
-        working_dir = self.working_dir if self.working_dir else os.getcwd()
-        self.screen_display.load_text(f"Starting Claude CLI...\nWorking directory: {working_dir}\n")
-        
-        # Start Claude CLI process
-        await self.start_claude_cli()
-        
-        # Focus the panel to receive keyboard input
-        self.focus()
+        logging.info("EmulatedTerminalPanel.on_mount called")
+        try:
+            # Show initial message
+            self.screen_display.load_text("Starting Claude CLI...\n")
+            working_dir = self.working_dir if self.working_dir else os.getcwd()
+            self.screen_display.load_text(f"Starting Claude CLI...\nWorking directory: {working_dir}\n")
+            
+            # Start Claude CLI process
+            await self.start_claude_cli()
+            
+            # Focus the panel to receive keyboard input
+            self.focus()
+        except Exception as e:
+            logging.error(f"Error in EmulatedTerminalPanel.on_mount: {e}", exc_info=True)
+            if hasattr(self, 'screen_display'):
+                self.screen_display.load_text(f"Error starting terminal: {e}")
     
     def cleanup(self) -> None:
         """Clean up resources when panel is being destroyed."""
@@ -604,6 +619,10 @@ Please make the requested changes to the Claude Code Morph source code."""
     
     async def on_key(self, event: Key) -> None:
         """Handle keyboard input and send to Claude process with optimized performance."""
+        # Check if screen_display exists
+        if not hasattr(self, 'screen_display') or not self.screen_display:
+            return
+            
         # Handle escape to return focus to panel
         if event.key == "escape" and self.screen_display.has_focus:
             self.screen_display.can_focus = False
@@ -617,7 +636,7 @@ Please make the requested changes to the Claude Code Morph source code."""
             self.action_copy_terminal()
             event.stop()
             return
-        elif event.key == "ctrl+c" and hasattr(self.screen_display, 'selected_text') and self.screen_display.selected_text:
+        elif event.key == "ctrl+c" and hasattr(self, 'screen_display') and self.screen_display and hasattr(self.screen_display, 'selected_text') and self.screen_display.selected_text:
             # If there's selected text, copy it
             logging.info("EmulatedTerminalPanel: Handling Ctrl+C with selection")
             self.action_copy_terminal()
@@ -662,7 +681,7 @@ Please make the requested changes to the Claude Code Morph source code."""
             return
             
         # If TextArea has focus, remove it for normal typing
-        if self.screen_display.has_focus:
+        if hasattr(self.screen_display, 'has_focus') and self.screen_display.has_focus:
             self.screen_display.can_focus = False
             self.focus()  # Return focus to panel
             
