@@ -17,7 +17,6 @@ from unittest.mock import patch, MagicMock
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from textual.testing import AppTest
 from claude_code_morph.main import ClaudeCodeMorph
 
 
@@ -35,11 +34,11 @@ class TestAppStartup:
                 assert app is not None
                 
                 # Main and Morph tabs should exist
-                assert pilot.app.query("#main-tab")
-                assert pilot.app.query("#morph-tab")
+                assert app.query("#main-tab")
+                assert app.query("#morph-tab")
                 
                 # Context tab should NOT exist
-                assert not pilot.app.query("#context-tab")
+                assert not app.query("#context-tab")
     
     @pytest.mark.asyncio
     async def test_app_starts_with_context_deps(self):
@@ -51,9 +50,9 @@ class TestAppStartup:
                     app = ClaudeCodeMorph()
                     async with app.run_test() as pilot:
                         # All tabs should exist
-                        assert pilot.app.query("#main-tab")
-                        assert pilot.app.query("#morph-tab")
-                        assert pilot.app.query("#context-tab")
+                        assert app.query("#main-tab")
+                        assert app.query("#morph-tab")
+                        assert app.query("#context-tab")
 
 
 class TestTabSwitching:
@@ -76,7 +75,7 @@ class TestTabSwitching:
         app = ClaudeCodeMorph()
         async with app.run_test() as pilot:
             # Get initial tab
-            tabbed = pilot.app.query_one("#tab-container")
+            tabbed = app.query_one("#tab-container")
             initial_tab = tabbed.active
             
             # Switch tabs
@@ -135,7 +134,7 @@ class TestPanelLoading:
             await asyncio.sleep(0.5)  # Give panels time to load
             
             # Check if morph panels exist
-            morph_container = pilot.app.query_one("#morph-container")
+            morph_container = app.query_one("#morph-container")
             assert morph_container is not None
             
             # Should have children (panels)
@@ -149,7 +148,7 @@ class TestPanelLoading:
             await asyncio.sleep(0.5)  # Give panels time to load
             
             # Check main container has panels
-            main_container = pilot.app.query_one("#main-container")
+            main_container = app.query_one("#main-container")
             assert main_container is not None
             assert len(main_container.children) > 0
 
