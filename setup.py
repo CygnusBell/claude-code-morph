@@ -36,6 +36,13 @@ extras_require = {
         'groq>=0.4.2',
         'openai>=1.12.0',
         'anthropic>=0.18.0',
+    ],
+    'test': [
+        'pytest>=7.0.0',
+        'pytest-asyncio>=0.21.0',
+        'pytest-timeout>=2.1.0',
+        'pytest-mock>=3.10.0',
+        'coverage>=7.0.0',
     ]
 }
 

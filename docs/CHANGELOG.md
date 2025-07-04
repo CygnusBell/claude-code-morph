@@ -1,6 +1,20 @@
 # Changelog
 
-## 2025-07-04
+## 2025-07-04 - Testing Framework
+
+### Added
+- Comprehensive integration test suite
+  - `test_integration.py` - Tests app startup, tab switching, panel loading
+  - `test_context_panel.py` - Specific tests for DOMQuery error handling
+  - `test_smoke.py` - Quick import and initialization checks
+- Test runner script (`run_tests.sh`) with multiple modes
+- Test dependencies in `setup.py` as `[test]` extra
+- Testing documentation (`docs/TESTING.md`)
+
+### Fixed
+- Syntax error in `_activate_context_tab` with global declaration
+
+## 2025-07-04 - Earlier Updates
 
 ### Fixed
 - Added comprehensive error handling for DOMQuery errors

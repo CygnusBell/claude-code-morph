@@ -1215,6 +1215,8 @@ class ClaudeCodeMorph(App):
     
     def _activate_context_tab(self) -> None:
         """Initialize context tab on first activation or refresh if needed."""
+        global CONTEXT_AVAILABLE
+        
         try:
             # Double-check context availability at runtime
             if not CONTEXT_AVAILABLE:
@@ -1224,7 +1226,6 @@ class ClaudeCodeMorph(App):
                     if CHROMADB_AVAILABLE:
                         logging.info("Context dependencies found on retry")
                         # Update the global flag
-                        global CONTEXT_AVAILABLE
                         CONTEXT_AVAILABLE = True
                     else:
                         logging.warning("Context tab activated but dependencies not available")
