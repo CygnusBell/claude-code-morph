@@ -335,14 +335,22 @@ class ClaudeCodeMorph(App):
                     sys.stderr.write("Press Ctrl+C again to force immediate exit.\n")
                     sys.stderr.flush()
                     
-                    # Try graceful shutdown in a thread-safe way
+                    # Try graceful shutdown
                     try:
-                        # Use call_from_thread to safely interact with the app
-                        if hasattr(app_ref, 'call_from_thread'):
-                            app_ref.call_from_thread(app_ref.exit)
+                        # Check if we're in the main thread
+                        import threading
+                        if threading.current_thread() is threading.main_thread():
+                            # We're in the main thread, can't use call_from_thread
+                            # Just set a flag to exit
+                            app_ref._shutting_down = True
+                            # Try to exit the app directly
+                            try:
+                                app_ref.exit()
+                            except:
+                                pass
                         else:
-                            # Fallback to direct exit
-                            app_ref.exit()
+                            # We're in a different thread, use call_from_thread
+                            app_ref.call_from_thread(app_ref.exit)
                     except Exception as e:
                         logging.error(f"Error during graceful shutdown: {e}")
                         
@@ -523,15 +531,21 @@ class ClaudeCodeMorph(App):
         
         # Start the loading process with a timeout
         try:
-            # Create the initialization task
-            init_task = self._perform_initialization()
+            # Create the initialization task - now it's a proper coroutine
+            init_task = asyncio.create_task(self._perform_initialization())
             
             # Add a watchdog timer to prevent hanging
             async def initialization_watchdog():
-                await asyncio.sleep(15.0)  # 15 second timeout
+                await asyncio.sleep(10.0)  # 10 second timeout
                 if not self._loading_complete:
                     logging.error("Initialization timeout! Forcing completion...")
-                    self.notify("Initialization timeout - loading with defaults", severity="warning")
+                    print("\n[WATCHDOG] Initialization timeout - forcing UI load", file=sys.stderr)
+                    sys.stderr.flush()
+                    
+                    # Cancel the initialization task if still running
+                    if not init_task.done():
+                        init_task.cancel()
+                    
                     # Force remove loading screen
                     if self._loading_screen:
                         try:
@@ -539,21 +553,30 @@ class ClaudeCodeMorph(App):
                         except:
                             pass
                         self._loading_screen = None
+                    
                     # Try to build UI anyway
                     try:
                         await self._build_main_ui()
+                        # Load default workspace
+                        await self.load_workspace_file("default.yaml")
                     except Exception as e:
                         logging.error(f"Failed to build UI after timeout: {e}")
+                        print(f"\n[ERROR] Failed to build UI: {e}", file=sys.stderr)
+                        sys.stderr.flush()
+                        # Force exit on critical failure
+                        os._exit(1)
+                        
                     self._loading_complete = True
             
-            # Start both the initialization and watchdog
+            # Start the watchdog
             asyncio.create_task(initialization_watchdog())
             
         except Exception as e:
             logging.error(f"Failed to start initialization: {e}")
+            print(f"\n[ERROR] Failed to start initialization: {e}", file=sys.stderr)
+            sys.stderr.flush()
             self.notify(f"Initialization error: {e}", severity="error")
     
-    @work(exclusive=True)
     async def _perform_initialization(self) -> None:
         """Perform initialization with loading screen updates."""
         logging.info("Starting _perform_initialization")
