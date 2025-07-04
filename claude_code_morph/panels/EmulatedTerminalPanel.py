@@ -221,6 +221,8 @@ class EmulatedTerminalPanel(BasePanel):
             env['TERM'] = 'xterm-256color'
             env['COLUMNS'] = str(self.terminal_columns)
             env['LINES'] = str(self.terminal_rows)
+            # Enable application keypad mode for better CLI compatibility
+            env['TERM_FEATURES'] = 'application_keypad'
             
             # Build command with proper flags
             cmd = ['claude', '--dangerously-skip-permissions']
@@ -647,18 +649,18 @@ Please make the requested changes to the Claude Code Morph source code."""
         
     # Optimized key mapping dictionary for fast lookups
     _KEY_MAP = {
-        # Arrow keys - multiple names to handle different Textual versions
-        "up": '\x1b[A',
-        "down": '\x1b[B', 
-        "left": '\x1b[D',
-        "right": '\x1b[C',
-        "arrow_up": '\x1b[A',
-        "arrow_down": '\x1b[B', 
-        "arrow_left": '\x1b[D',
-        "arrow_right": '\x1b[C',
+        # Arrow keys - try application mode sequences first, then fallback to normal
+        "up": '\x1bOA',     # Application mode (what many CLIs expect)
+        "down": '\x1bOB', 
+        "left": '\x1bOD',
+        "right": '\x1bOC',
+        "arrow_up": '\x1bOA',
+        "arrow_down": '\x1bOB', 
+        "arrow_left": '\x1bOD',
+        "arrow_right": '\x1bOC',
         # Other keys
-        "home": '\x01',
-        "end": '\x05',
+        "home": '\x1b[H',   # More standard home key
+        "end": '\x1b[F',    # More standard end key  
         "backspace": '\x7f',
         "delete": '\x1b[3~',
         "enter": '\r',
@@ -756,11 +758,28 @@ Please make the requested changes to the Claude Code Morph source code."""
                 
                 # Extra logging for arrow keys to debug the issue
                 if event.key in ["up", "down", "arrow_up", "arrow_down"]:
-                    logging.info(f"ARROW KEY DEBUG: Sent '{event.key}' as sequence '{repr(key_sequence)}' (bytes: {repr(key_sequence_bytes) if isinstance(key_sequence, str) else repr(key_sequence)}) to Claude process")
+                    logging.info(f"ARROW KEY DEBUG: Sent '{event.key}' as APPLICATION MODE sequence '{repr(key_sequence)}' (bytes: {repr(key_sequence_bytes) if isinstance(key_sequence, str) else repr(key_sequence)}) to Claude process")
                 else:
                     logging.debug(f"Sent special key '{event.key}' as sequence '{repr(key_sequence)}' to Claude")
             except Exception as e:
                 logging.error(f"Error sending key sequence for '{event.key}': {e}")
+                
+                # If application mode fails, try normal mode as fallback for arrow keys
+                if event.key in ["up", "down", "left", "right"]:
+                    fallback_sequences = {
+                        "up": '\x1b[A',
+                        "down": '\x1b[B', 
+                        "left": '\x1b[D',
+                        "right": '\x1b[C'
+                    }
+                    fallback_seq = fallback_sequences.get(event.key)
+                    if fallback_seq:
+                        try:
+                            fallback_bytes = fallback_seq.encode('utf-8')
+                            self.claude_process.send(fallback_bytes)
+                            logging.info(f"ARROW KEY DEBUG: Fallback - sent '{event.key}' as NORMAL MODE sequence '{repr(fallback_seq)}'")
+                        except Exception as e2:
+                            logging.error(f"Fallback also failed for '{event.key}': {e2}")
         elif event.character and len(event.character) == 1:
             # Direct character send for regular keys
             self.claude_process.send(event.character)
