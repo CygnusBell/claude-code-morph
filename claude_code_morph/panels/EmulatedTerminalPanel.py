@@ -484,8 +484,18 @@ class EmulatedTerminalPanel(BasePanel):
                 self._last_displayed_content = screen_content
                 self._last_update_time = current_time
                 
-                # Scroll to bottom
-                self.screen_display.cursor_location = (self.screen_display.document.line_count - 1, 0)
+                # DON'T auto-scroll to bottom - let Claude content show naturally
+                # Only scroll to bottom if there's actual interactive content at the end
+                lines = screen_content.split('\n')
+                non_empty_lines = [i for i, line in enumerate(lines) if line.strip()]
+                
+                if non_empty_lines:
+                    # Position cursor at the last line with actual content, not empty bottom
+                    last_content_line = non_empty_lines[-1]
+                    self.screen_display.cursor_location = (min(last_content_line, self.screen_display.document.line_count - 1), 0)
+                else:
+                    # If no content, stay at top
+                    self.screen_display.cursor_location = (0, 0)
             else:
                 # Content unchanged, just update the timestamp to prevent excessive checks
                 self._last_update_time = current_time
@@ -745,45 +755,36 @@ Please make the requested changes to the Claude Code Morph source code."""
         # TextArea is always display-only, no need to manage its focus
         # All input is handled by the Panel directly
             
-        # CLAUDE CLI MENU NAVIGATION: Try multiple sequence formats for menu navigation
+        # ARROW KEYS: Direct raw byte approach for Claude CLI
         if event.key in ["up", "down"]:
-            logging.info(f"🎯 ARROW KEY: Trying Claude CLI menu navigation for '{event.key}'")
+            logging.info(f"🎯 RAW ARROW: Sending raw bytes for '{event.key}'")
             
-            # Try different sequences that CLI menus commonly use
-            sequences_to_try = []
-            
-            if event.key == "up":
-                sequences_to_try = [
-                    '\x1b[A',      # Standard up arrow
-                    '\x1bOA',      # Application mode up
-                    '\x10',        # Ctrl+P (previous)
-                    'k',           # vi-style up
-                    '\x1b[1A',     # Extended up arrow
-                ]
-            elif event.key == "down":
-                sequences_to_try = [
-                    '\x1b[B',      # Standard down arrow  
-                    '\x1bOB',      # Application mode down
-                    '\x0e',        # Ctrl+N (next)
-                    'j',           # vi-style down
-                    '\x1b[1B',     # Extended down arrow
-                ]
-            
-            # Try each sequence until one works
-            for i, seq in enumerate(sequences_to_try):
+            try:
+                if event.key == "up":
+                    # Send raw up arrow as individual bytes
+                    self.claude_process.send(b'\x1b')  # ESC
+                    self.claude_process.send(b'[')     # [
+                    self.claude_process.send(b'A')     # A
+                    logging.info(f"🎯 Sent raw UP arrow bytes: ESC [ A")
+                elif event.key == "down":
+                    # Send raw down arrow as individual bytes  
+                    self.claude_process.send(b'\x1b')  # ESC
+                    self.claude_process.send(b'[')     # [
+                    self.claude_process.send(b'B')     # B
+                    logging.info(f"🎯 Sent raw DOWN arrow bytes: ESC [ B")
+                    
+            except Exception as e:
+                logging.error(f"Error sending raw arrow bytes for '{event.key}': {e}")
+                
+                # Ultimate fallback - try writing directly to stdin
                 try:
-                    if isinstance(seq, str):
-                        seq_bytes = seq.encode('utf-8')
-                        self.claude_process.send(seq_bytes)
-                        logging.info(f"🎯 Sent sequence #{i+1} for '{event.key}': {repr(seq)}")
-                        break  # Only send the first sequence for now
-                    else:
-                        self.claude_process.send(seq)
-                        logging.info(f"🎯 Sent sequence #{i+1} for '{event.key}': {repr(seq)}")
-                        break
-                except Exception as e:
-                    logging.error(f"Failed to send sequence #{i+1} for '{event.key}': {e}")
-                    continue
+                    if event.key == "up":
+                        self.claude_process.sendline('\x1b[A')
+                    elif event.key == "down":
+                        self.claude_process.sendline('\x1b[B')
+                    logging.info(f"🎯 Fallback: Used sendline for '{event.key}'")
+                except Exception as e2:
+                    logging.error(f"Fallback also failed for '{event.key}': {e2}")
             
             event.stop()
             return
