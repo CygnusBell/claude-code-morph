@@ -32,6 +32,22 @@ class MorphPanel(BasePanel):
         height: 100%;
         width: 100%;
     }
+    
+    #morph-workspace-container {
+        height: 100%;
+        width: 100%;
+        layout: vertical;
+    }
+    
+    #morph-workspace-container > PromptPanel {
+        height: 40%;
+        min-height: 10;
+    }
+    
+    #morph-workspace-container > EmulatedTerminalPanel {
+        height: 60%;
+        min-height: 10;
+    }
     """
     
     def __init__(self, **kwargs):
@@ -42,7 +58,7 @@ class MorphPanel(BasePanel):
         self.morph_source_dir = Path(__file__).parent.parent.absolute()
         logging.info(f"MorphPanel initialized with source dir: {self.morph_source_dir}")
         
-    def compose(self) -> ComposeResult:
+    def compose_content(self) -> ComposeResult:
         """Compose a container that will hold the loaded workspace panels."""
         with Vertical(id="morph-workspace-container"):
             yield Static("Loading morph workspace...", id="morph-loading-message")
@@ -125,3 +141,12 @@ class MorphPanel(BasePanel):
                     panel = self.sub_panels[panel_id]
                     if hasattr(panel, 'restore_state'):
                         panel.restore_state(panel_state)
+    
+    async def on_button_pressed(self, event) -> None:
+        """Override to prevent gear_button issues with sub-panels."""
+        # Don't handle button presses from sub-panels
+        if hasattr(event, 'button') and hasattr(self, 'gear_button') and event.button == self.gear_button:
+            await super().on_button_pressed(event)
+        else:
+            # Let the event bubble up
+            pass

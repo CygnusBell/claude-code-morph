@@ -628,10 +628,13 @@ class ClaudeCodeMorph(App):
     async def load_morph_workspace(self, morph_panel) -> None:
         """Load the workspace configuration for morph mode."""
         logging.info("=== load_morph_workspace called ===")
+        logging.info(f"Morph panel type: {type(morph_panel)}")
+        logging.info(f"Morph panel ID: {morph_panel.id if hasattr(morph_panel, 'id') else 'No ID'}")
         
         try:
             # Get the container from the morph panel
             container = morph_panel.query_one("#morph-workspace-container", Vertical)
+            logging.info(f"Found morph workspace container: {container}")
             
             # Remove loading message
             loading_msg = container.query_one("#morph-loading-message")
@@ -658,12 +661,22 @@ class ClaudeCodeMorph(App):
             morph_panel.sub_panels['terminal'] = terminal_panel
             
             # Mount panels
+            logging.info(f"Mounting prompt panel: {prompt_panel}")
             await container.mount(prompt_panel)
+            logging.info(f"Mounted prompt panel successfully")
+            
+            logging.info(f"Mounting terminal panel: {terminal_panel}")
             await container.mount(terminal_panel)
+            logging.info(f"Mounted terminal panel successfully")
             
             # Connect panels
             if hasattr(prompt_panel, 'set_terminal_panel'):
                 prompt_panel.set_terminal_panel(terminal_panel)
+                logging.info("Connected prompt panel to terminal panel")
+            
+            # Force a refresh
+            container.refresh(layout=True)
+            morph_panel.refresh(layout=True)
             
             logging.info("Morph workspace loaded successfully")
             self.notify("Morph workspace loaded", severity="information")
