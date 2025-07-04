@@ -18,6 +18,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll, Container
 from textual.widgets import Header, Footer, Static, TabbedContent, TabPane, ContentSwitcher
 from textual.binding import Binding
+from textual import work
 from rich.console import Console
 from rich.prompt import Prompt
 from datetime import datetime
@@ -200,7 +201,7 @@ class ClaudeCodeMorph(App):
     }
     
     Tab {
-        padding: 0 2;
+        padding: 1 3;
     }
     
     Tab:hover {
@@ -233,6 +234,10 @@ class ClaudeCodeMorph(App):
         # Track if we're shutting down to prevent duplicate cleanup
         self._shutting_down = False
         self._force_exit_count = 0
+        
+        # Loading screen tracking
+        self._loading_screen = None
+        self._loading_complete = False
         
         # Use morph source directory for internal files
         self.morph_source = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent))
@@ -441,33 +446,14 @@ class ClaudeCodeMorph(App):
     def compose(self) -> ComposeResult:
         """Create the main layout."""
         logging.info("=== compose() called ===")
-        yield Header()
         
-        from .widgets.resizable import ResizableContainer
+        # Show loading screen first
+        from .widgets.loading_screen import LoadingScreen
+        self._loading_screen = LoadingScreen()
+        yield self._loading_screen
         
-        # Store references to containers
-        self.main_container = ResizableContainer(id="main-container")
-        self.morph_container = ResizableContainer(id="morph-container")
-        if CONTEXT_AVAILABLE:
-            self.context_container = ResizableContainer(id="context-container")
-            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}, context={self.context_container}")
-        else:
-            self.context_container = None
-            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container} (context unavailable)")
-        
-        # Create the tabbed content with context managers
-        with TabbedContent(id="tab-container"):
-            with TabPane("Main", id="main-tab"):
-                yield self.main_container
-            with TabPane("Morph", id="morph-tab"):
-                yield self.morph_container
-            # Only show Context tab if dependencies are available
-            if CONTEXT_AVAILABLE:
-                with TabPane("Context", id="context-tab"):
-                    yield self.context_container
-        
-        yield Footer()
-        logging.info("=== compose() completed ===")
+        # The actual UI will be mounted in on_mount after loading
+        logging.info("=== compose() completed with loading screen ===")
         
     def on_key(self, event) -> None:
         """Debug key events."""
@@ -481,6 +467,40 @@ class ClaudeCodeMorph(App):
             logging.info("Ctrl+Comma detected in app!")
             # Don't stop the event, let it continue to action
         
+    async def _build_main_ui(self) -> None:
+        """Build and mount the main UI after loading is complete."""
+        from .widgets.resizable import ResizableContainer
+        
+        # Create header
+        await self.mount(Header())
+        
+        # Store references to containers
+        self.main_container = ResizableContainer(id="main-container")
+        self.morph_container = ResizableContainer(id="morph-container")
+        if CONTEXT_AVAILABLE:
+            self.context_container = ResizableContainer(id="context-container")
+            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}, context={self.context_container}")
+        else:
+            self.context_container = None
+            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container} (context unavailable)")
+        
+        # Create the tabbed content
+        tabs = TabbedContent(id="tab-container")
+        await self.mount(tabs)
+        
+        # Add tabs
+        await tabs.add_pane(TabPane("Main", self.main_container, id="main-tab"))
+        await tabs.add_pane(TabPane("Morph", self.morph_container, id="morph-tab"))
+        
+        # Only show Context tab if dependencies are available
+        if CONTEXT_AVAILABLE:
+            await tabs.add_pane(TabPane("Context", self.context_container, id="context-tab"))
+        
+        # Create footer
+        await self.mount(Footer())
+        
+        logging.info("Main UI built successfully")
+
     async def on_mount(self) -> None:
         """Called when the app starts."""
         logging.info("=== on_mount called ===")
@@ -488,51 +508,73 @@ class ClaudeCodeMorph(App):
         logging.info(f"Python version: {sys.version}")
         logging.info(f"CONTEXT_AVAILABLE at startup: {CONTEXT_AVAILABLE}")
         
-        # Initialize context integration if available
-        if CONTEXT_AVAILABLE and ContextIntegration:
-            try:
-                logging.info("Initializing context integration...")
-                self.context_integration = ContextIntegration()
-                # Only initialize if dependencies are actually installed
-                if self.context_integration and self.context_integration.available:
-                    await self.context_integration.initialize()
-                    logging.info("Context integration initialized successfully")
-                else:
-                    logging.info("Context integration not available - dependencies missing")
-            except Exception as e:
-                logging.error(f"Error initializing context integration: {e}", exc_info=True)
-                self.notify(f"Context system error: {e}", severity="warning")
-                self.context_integration = None
-        else:
-            logging.info("Context integration not available - dependencies missing")
-            self.context_integration = None
-        
-        # Log the widget tree
-        self._log_widget_tree()
-        
-        # Hot-reloading disabled - use F5 for manual reload
-        # try:
-        #     self.observer.schedule(self.panel_reloader, str(self.panels_dir), recursive=False)
-        #     self.observer.start()
-        # except Exception as e:
-        #     logging.warning(f"Could not start file watcher for hot-reloading: {e}")
-        #     # Continue without hot-reloading
-        
-        # Load workspace immediately
+        # Start the loading process
+        self._perform_initialization()
+    
+    @work(exclusive=True)
+    async def _perform_initialization(self) -> None:
+        """Perform initialization with loading screen updates."""
         try:
-            # Check for existing session
-            session_info = self.session_manager.get_session_info()
-            if session_info:
-                logging.info(f"Found session info: {session_info}")
-                self.notify(f"Found session from {session_info.get('saved_at', 'unknown time')}")
-                # Load with session
-                logging.info("Calling _load_with_session...")
-                await self._load_with_session()
+            # Step 1: Initialize base components
+            if self._loading_screen:
+                self._loading_screen.update_status("Initializing core components...", 1)
+            await asyncio.sleep(0.1)  # Allow UI to update
+            
+            # Step 2: Initialize context integration if available
+            if CONTEXT_AVAILABLE and ContextIntegration:
+                if self._loading_screen:
+                    self._loading_screen.update_status("Setting up context system...", 2)
+                await asyncio.sleep(0.1)
+                
+                try:
+                    logging.info("Initializing context integration...")
+                    self.context_integration = ContextIntegration()
+                    # Only initialize if dependencies are actually installed
+                    if self.context_integration and self.context_integration.available:
+                        await self.context_integration.initialize()
+                        logging.info("Context integration initialized successfully")
+                    else:
+                        logging.info("Context integration not available - dependencies missing")
+                except Exception as e:
+                    logging.error(f"Error initializing context integration: {e}", exc_info=True)
+                    self.context_integration = None
             else:
-                logging.info("No session found, loading default workspace")
-                # Load default workspace
-                logging.info("Calling load_workspace_file...")
-                await self.load_workspace_file("default.yaml")
+                logging.info("Context integration not available - dependencies missing")
+                self.context_integration = None
+            
+            # Step 3: Build main UI
+            if self._loading_screen:
+                self._loading_screen.update_status("Building user interface...", 3)
+            await asyncio.sleep(0.1)
+            
+            # Remove loading screen and build main UI
+            if self._loading_screen:
+                await self._loading_screen.remove()
+                self._loading_screen = None
+            await self._build_main_ui()
+            
+            # Step 4: Load panels
+            # Note: Loading screen has been removed at this point
+            await asyncio.sleep(0.1)
+            
+            # Load workspace immediately
+            try:
+                # Check for existing session
+                session_info = self.session_manager.get_session_info()
+                if session_info:
+                    logging.info(f"Found session info: {session_info}")
+                    self.notify(f"Found session from {session_info.get('saved_at', 'unknown time')}")
+                    # Load with session
+                    logging.info("Calling _load_with_session...")
+                    await self._load_with_session()
+                else:
+                    logging.info("No session found, loading default workspace")
+                    # Load default workspace
+                    logging.info("Calling load_workspace_file...")
+                    await self.load_workspace_file("default.yaml")
+            except Exception as e:
+                logging.error(f"Error loading workspace: {e}", exc_info=True)
+                self.notify(f"Error loading workspace: {e}", severity="error")
                 
             # Connect the panels after loading
             logging.info("Calling _connect_panels...")
@@ -586,38 +628,43 @@ class ClaudeCodeMorph(App):
             except Exception as e:
                 logging.error(f"Error checking tab visibility: {e}", exc_info=True)
             
-        except Exception as e:
-            logging.error(f"Error during mount: {e}", exc_info=True)
-            self.notify(f"Error loading workspace: {e}", severity="error")
-        
-        # Start auto-save timer (30 seconds)
-        self._start_auto_save()
-        
-        # Load morph workspace directly into morph container
-        try:
-            logging.info("Loading morph workspace into morph container")
-            await self.load_morph_workspace_direct(self.morph_container)
-            logging.info("Morph workspace loaded successfully")
-        except Exception as e:
-            logging.error(f"Error loading morph workspace: {e}", exc_info=True)
-        
-        # Load context panel directly into context container if tab exists
-        if CONTEXT_AVAILABLE:
+            # Step 5: Final initialization
+            
+            # Start auto-save timer (30 seconds)
+            self._start_auto_save()
+            
+            # Load morph workspace directly into morph container
             try:
-                logging.info("Loading context panel into context container")
-                await self.load_context_panel_direct(self.context_container)
-                logging.info("Context panel loaded successfully")
+                logging.info("Loading morph workspace into morph container")
+                await self.load_morph_workspace_direct(self.morph_container)
+                logging.info("Morph workspace loaded successfully")
             except Exception as e:
-                logging.error(f"Error loading context panel: {e}", exc_info=True)
-        else:
-            logging.info("Context tab not loaded - dependencies missing")
-        
-        # Schedule a full refresh after a short delay to ensure everything is laid out
-        self.set_timer(0.5, self._force_full_refresh)
-        
-        logging.info("=== on_mount completed ===")
+                logging.error(f"Error loading morph workspace: {e}", exc_info=True)
+            
+            # Load context panel directly into context container if tab exists
+            if CONTEXT_AVAILABLE:
+                try:
+                    logging.info("Loading context panel into context container")
+                    await self.load_context_panel_direct(self.context_container)
+                    logging.info("Context panel loaded successfully")
+                except Exception as e:
+                    logging.error(f"Error loading context panel: {e}", exc_info=True)
+            else:
+                logging.info("Context tab not loaded - dependencies missing")
+            
+            # Schedule a full refresh after a short delay to ensure everything is laid out
+            self.set_timer(0.5, self._force_full_refresh)
+            
+            # Mark loading as complete
+            self._loading_complete = True
+            logging.info("=== Initialization completed ===")
+            
+        except Exception as e:
+            logging.error(f"Error during initialization: {e}", exc_info=True)
+            self.notify(f"Error during initialization: {e}", severity="error")
+            # Mark loading as complete even on error
+            self._loading_complete = True
     
-        
     async def startup_prompt(self) -> None:
         """Show startup prompt to user."""
         # Run in a thread to avoid blocking the UI
