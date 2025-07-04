@@ -625,6 +625,57 @@ class ClaudeCodeMorph(App):
         }
         await self.load_workspace(config)
         
+    async def load_morph_workspace(self, morph_panel) -> None:
+        """Load the workspace configuration for morph mode."""
+        logging.info("=== load_morph_workspace called ===")
+        
+        try:
+            # Get the container from the morph panel
+            container = morph_panel.query_one("#morph-workspace-container", Vertical)
+            
+            # Remove loading message
+            loading_msg = container.query_one("#morph-loading-message")
+            if loading_msg:
+                await loading_msg.remove()
+            
+            # Import panel classes
+            from .panels.PromptPanel import PromptPanel
+            from .panels.EmulatedTerminalPanel import EmulatedTerminalPanel
+            
+            # Get morph source directory
+            morph_source_dir = morph_panel.morph_source_dir
+            logging.info(f"Loading morph workspace with source dir: {morph_source_dir}")
+            
+            # Create prompt panel
+            prompt_panel = PromptPanel(id="morph-prompt-panel")
+            morph_panel.sub_panels['prompt'] = prompt_panel
+            
+            # Create terminal panel with morph source directory
+            terminal_panel = EmulatedTerminalPanel(
+                id="morph-terminal-panel",
+                working_dir=str(morph_source_dir)
+            )
+            morph_panel.sub_panels['terminal'] = terminal_panel
+            
+            # Mount panels
+            await container.mount(prompt_panel)
+            await container.mount(terminal_panel)
+            
+            # Connect panels
+            if hasattr(prompt_panel, 'set_terminal_panel'):
+                prompt_panel.set_terminal_panel(terminal_panel)
+            
+            logging.info("Morph workspace loaded successfully")
+            self.notify("Morph workspace loaded", severity="information")
+            
+        except Exception as e:
+            logging.error(f"Error loading morph workspace: {e}", exc_info=True)
+            self.notify(f"Error loading morph workspace: {e}", severity="error")
+            # Show error in the morph panel
+            await container.mount(
+                Static(f"[red]Error loading morph workspace: {e}[/red]")
+            )
+        
     async def add_panel(self, panel_type: str, panel_id: str, params: dict, container=None) -> None:
         """Dynamically load and add a panel to the layout."""
         try:

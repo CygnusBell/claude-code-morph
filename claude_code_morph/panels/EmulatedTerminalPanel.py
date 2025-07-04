@@ -76,7 +76,7 @@ class EmulatedTerminalPanel(BasePanel):
         Binding("ctrl+d", "send_eof", "Send EOF", show=False),
     ]
     
-    def __init__(self, **kwargs):
+    def __init__(self, working_dir: Optional[str] = None, **kwargs):
         """Initialize the emulated terminal panel."""
         super().__init__(**kwargs)
         self.claude_process: Optional[pexpect.spawn] = None
@@ -87,6 +87,7 @@ class EmulatedTerminalPanel(BasePanel):
         self.can_focus = True
         self._is_processing = False  # Track if Claude is processing
         self._claude_started = False  # Track if Claude has shown initial prompt
+        self.working_dir = working_dir  # Store the working directory
         
         # Initialize pyte terminal emulator
         self.terminal_screen = pyte.Screen(120, 40)  # 120 columns, 40 rows
@@ -118,7 +119,8 @@ class EmulatedTerminalPanel(BasePanel):
     async def on_mount(self) -> None:
         """Called when panel is mounted."""
         self.screen_display.write("[yellow]Starting Claude CLI...[/yellow]")
-        self.screen_display.write(f"[dim]Working directory: {os.getcwd()}[/dim]")
+        working_dir = self.working_dir if self.working_dir else os.getcwd()
+        self.screen_display.write(f"[dim]Working directory: {working_dir}[/dim]")
         
         # Start Claude CLI process
         await self.start_claude_cli()
@@ -138,8 +140,8 @@ class EmulatedTerminalPanel(BasePanel):
             # Build command with proper flags
             cmd = ['claude', '--dangerously-skip-permissions']
             
-            # Get the working directory - use current directory
-            working_dir = os.getcwd()
+            # Get the working directory - use provided or current directory
+            working_dir = self.working_dir if self.working_dir else os.getcwd()
             
             # Start Claude with pexpect
             self.claude_process = pexpect.spawn(
