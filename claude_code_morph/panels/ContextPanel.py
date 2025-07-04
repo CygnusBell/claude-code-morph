@@ -150,13 +150,25 @@ class ContextPanel(BasePanel):
         """Compose the context panel layout."""
         # Check if context system is available
         try:
-            from ..context_manager import CHROMADB_AVAILABLE
-            self.context_available = CHROMADB_AVAILABLE
-        except ImportError:
+            # Try different import paths
+            try:
+                from ..context_manager import CHROMADB_AVAILABLE
+                self.context_available = CHROMADB_AVAILABLE
+                logging.info(f"ContextPanel compose_content - CHROMADB_AVAILABLE from relative import: {CHROMADB_AVAILABLE}")
+            except ImportError:
+                # Try absolute import
+                from claude_code_morph.context_manager import CHROMADB_AVAILABLE
+                self.context_available = CHROMADB_AVAILABLE
+                logging.info(f"ContextPanel compose_content - CHROMADB_AVAILABLE from absolute import: {CHROMADB_AVAILABLE}")
+        except ImportError as e:
             self.context_available = False
+            logging.error(f"ContextPanel compose_content - Failed to import CHROMADB_AVAILABLE: {e}")
+            
+        logging.info(f"ContextPanel compose_content - context_available set to: {self.context_available}")
             
         if not self.context_available:
             # Show message when dependencies are missing
+            logging.info("ContextPanel - Showing 'no context' message")
             with Vertical(classes="context-table-container"):
                 yield Static(
                     "Context features are not available.\n\n"
@@ -168,6 +180,7 @@ class ContextPanel(BasePanel):
                 )
         else:
             # Normal UI when dependencies are available
+            logging.info("ContextPanel - Creating normal UI with table")
             # Search container
             with Horizontal(classes="search-container"):
                 yield Input(
@@ -193,14 +206,31 @@ class ContextPanel(BasePanel):
         """Initialize the data table when mounted."""
         super().on_mount()
         
+        logging.info(f"ContextPanel on_mount - context_available: {self.context_available}")
+        
         if not self.context_available:
+            logging.info("Context not available, skipping table initialization")
             return
             
+        # Schedule table initialization after a short delay
+        self.call_after_refresh(self._initialize_table)
+        
+    def _initialize_table(self) -> None:
+        """Initialize the context table after mount."""
         # Get the data table
         try:
             table = self.query_one("#context-table", DataTable)
+            logging.info(f"Found context table: {table}")
         except Exception as e:
-            logging.error(f"Failed to find context table in on_mount: {e}")
+            logging.error(f"Failed to find context table in _initialize_table: {e}")
+            # Try to list all widgets to debug
+            try:
+                all_widgets = list(self.query("*"))
+                logging.debug(f"Available widgets in ContextPanel: {[w.__class__.__name__ for w in all_widgets]}")
+                tables = list(self.query(DataTable))
+                logging.debug(f"DataTable widgets found: {len(tables)}")
+            except Exception as debug_e:
+                logging.error(f"Failed to query widgets for debugging: {debug_e}")
             return
         
         # Configure table
@@ -368,14 +398,15 @@ class ContextPanel(BasePanel):
     
     def _apply_search_filter(self) -> None:
         """Apply the current search filter to entries."""
-        if not self.search_query:
+        query = str(self.search_query).lower()  # Convert reactive to string
+        if not query:
             self.filtered_entries = self.context_entries.copy()
         else:
             self.filtered_entries = [
                 entry for entry in self.context_entries
-                if (self.search_query in entry['text'].lower() or
-                    self.search_query in entry['source'].lower() or
-                    self.search_query in entry['type'].lower())
+                if (query in entry['text'].lower() or
+                    query in entry['source'].lower() or
+                    query in entry['type'].lower())
             ]
         
         # Sort by relevance score (descending)

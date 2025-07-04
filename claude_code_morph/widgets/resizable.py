@@ -183,8 +183,6 @@ class ResizableContainer(Container):
                 # Create a wrapper for the panel
                 wrapper = Container(classes="panel-wrapper")
                 logging.debug(f"Created wrapper for {widget} with classes {wrapper.classes}")
-                # Mount the widget inside the wrapper
-                await wrapper.mount(widget)
                 
                 # Add splitter before panel (except for the first one)
                 if self.panels:
@@ -194,11 +192,16 @@ class ResizableContainer(Container):
                     if result:
                         mounted_widgets.extend(result)
                 
-                # Add the panel wrapper
-                self.panels.append(widget)
+                # Mount the wrapper first
                 result = await super().mount(wrapper)
                 if result:
                     mounted_widgets.extend(result)
+                
+                # Now mount the widget inside the wrapper (after wrapper is mounted)
+                await wrapper.mount(widget)
+                
+                # Add to panels list
+                self.panels.append(widget)
         
         # Initialize or update panel sizes when panels change
         if self.panels:

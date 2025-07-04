@@ -3,7 +3,7 @@
 # Recommended: Use Python 3.12 or earlier for best compatibility
 
 # Core UI and terminal packages
-textual==0.47.1
+textual==3.5.0
 rich==13.7.0
 pyyaml==6.0.1
 
