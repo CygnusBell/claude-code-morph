@@ -1068,6 +1068,11 @@ class ClaudeCodeMorph(App):
             logging.info(f"Container children after load: {len(container.children)}")
             self.notify("Settings panel loaded", severity="information")
             
+            # Try to populate the tree after a delay
+            if "settings-panel" in self.panels:
+                panel = self.panels["settings-panel"]
+                self.set_timer(0.5, lambda: panel.populate_tree())
+            
         except Exception as e:
             logging.error(f"Error loading settings panel: {e}", exc_info=True)
             self.notify(f"Error loading settings panel: {e}", severity="error")

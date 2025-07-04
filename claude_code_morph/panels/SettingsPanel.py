@@ -15,6 +15,7 @@ from textual.widgets.tree import TreeNode
 from textual.reactive import reactive
 from textual.binding import Binding
 from rich.syntax import Syntax
+from rich.text import Text
 
 try:
     from .BasePanel import BasePanel
@@ -345,7 +346,44 @@ class SettingsPanel(BasePanel):
         logging.info("populate_tree called")
         try:
             tree = self.query_one("#config-tree", Tree)
-            self.on_mount()  # Just call on_mount again
+            # Clear and rebuild the tree without calling on_mount
+            tree.root.remove_children()
+            
+            # Add nodes directly
+            global_node = tree.root.add("🌍 Global Settings (~/.claude/)")
+            for key, config in self.config_files.items():
+                if key.startswith("global/"):
+                    icon = "📄" if config.exists else "⚠️"
+                    label = f"{icon} {config.display_name}"
+                    if not config.exists:
+                        label += " (not found)"
+                    elif not config.is_readable:
+                        label += " (no read permission)"
+                    global_node.add(label, data=key)
+                    
+            app_node = tree.root.add("🚀 Application Settings")
+            for key, config in self.config_files.items():
+                if key.startswith("app/"):
+                    icon = "📄" if config.exists else "⚠️"
+                    label = f"{icon} {config.display_name}"
+                    if not config.exists:
+                        label += " (not found)"
+                    app_node.add(label, data=key)
+                    
+            project_node = tree.root.add(f"📁 Project Settings ({Path.cwd().name})")
+            for key, config in self.config_files.items():
+                if key.startswith("project/"):
+                    icon = "📄" if config.exists else "⚠️"
+                    label = f"{icon} {config.display_name}"
+                    if not config.exists:
+                        label += " (not found)"
+                    project_node.add(label, data=key)
+                    
+            # Expand all and refresh
+            for node in tree.root.children:
+                node.expand()
+            tree.refresh()
+            
         except Exception as e:
             logging.error(f"Error in populate_tree: {e}")
             
