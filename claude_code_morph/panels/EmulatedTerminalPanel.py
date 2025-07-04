@@ -671,20 +671,21 @@ Please make the requested changes to the Claude Code Morph source code."""
     
     async def on_key(self, event: Key) -> None:
         """Handle keyboard input and send to Claude process with optimized performance."""
-        # Debug logging for arrow keys specifically
-        if event.key in ["up", "down"]:
-            logging.info(f"ARROW KEY DEBUG: Received '{event.key}' in on_key, has_focus={self.has_focus}")
+        # COMPREHENSIVE DEBUG: Log ALL key events to see what's happening
+        logging.info(f"🔑 KEY EVENT: '{event.key}' (char: {repr(event.character)}) has_focus={self.has_focus}")
+        
+        # Special attention to arrow keys
+        if event.key in ["up", "down", "left", "right", "arrow_up", "arrow_down", "arrow_left", "arrow_right"]:
+            logging.info(f"🏹 ARROW KEY DETECTED: '{event.key}' with character: {repr(event.character)}")
             
         # Check if screen_display exists
         if not hasattr(self, 'screen_display') or not self.screen_display:
+            logging.info(f"❌ No screen_display for key '{event.key}'")
             return
             
         # Only handle keys if this panel has focus (is visible and active)
         if not self.has_focus:
-            if event.key in ["up", "down"]:
-                logging.info(f"ARROW KEY DEBUG: Ignoring '{event.key}' - panel not focused")
-            else:
-                logging.debug(f"EmulatedTerminalPanel: Ignoring key '{event.key}' - panel not focused")
+            logging.info(f"❌ Panel not focused for key '{event.key}' - ignoring")
             return
             
         # Handle escape key as a regular terminal input
@@ -744,6 +745,20 @@ Please make the requested changes to the Claude Code Morph source code."""
         # TextArea is always display-only, no need to manage its focus
         # All input is handled by the Panel directly
             
+        # TEMPORARY DEBUG: Map arrow keys to numbers that should work for testing
+        if event.key in ["up", "down"]:
+            logging.info(f"🧪 DEBUG MODE: Mapping '{event.key}' to number for testing")
+            if event.key == "up":
+                # Send "1" for up arrow (select option 1)
+                self.claude_process.send("1")
+                logging.info(f"🧪 Sent '1' for up arrow as test")
+            elif event.key == "down":
+                # Send "2" for down arrow (select option 2)
+                self.claude_process.send("2")
+                logging.info(f"🧪 Sent '2' for down arrow as test")
+            event.stop()
+            return
+        
         # Fast dictionary lookup for special keys
         key_sequence = self._KEY_MAP.get(event.key)
         if key_sequence:
