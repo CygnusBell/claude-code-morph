@@ -1,5 +1,42 @@
 # Changelog
 
+## 2025-07-04 - UI Improvements and Copy/Paste Support
+
+### Added
+- **Settings Tab** - New tab for editing Claude CLI configuration files
+  - Tree view of all config files (global, user, project)
+  - Live editing with syntax highlighting for JSON/YAML/Markdown
+  - Save/reload/backup functionality with validation
+  - Shows file status (exists, readable, writable)
+  - Accessible via Ctrl+4
+- **Copy/Paste Support in Terminal**
+  - Ctrl+Shift+C to copy terminal content
+  - Ctrl+Shift+V to paste into terminal
+  - Enables claude code account login with token copying
+  - Falls back to file clipboard if system clipboard unavailable
+- **Loading Screen** - Proper loading animation during startup
+  - Shows progress through initialization steps
+  - Prevents "p"/"pp" display issue
+  - 10-second watchdog timer prevents hanging
+
+### Fixed
+- **Tab Visibility** - Tab text now clearly visible with proper colors
+  - Fixed tab button text color (#f8f8f2)
+  - Improved hover and active states
+  - Better contrast between active/inactive tabs
+- **UI Alignment** - Better spacing and layout consistency
+  - Fixed panel header text colors
+  - Improved Settings panel layout
+  - Consistent container styling
+- **Initialization Issues**
+  - Fixed @work decorator causing coroutine errors
+  - Improved signal handling for emergency exit
+  - Fixed initialization hanging with watchdog timer
+
+### Changed
+- Tab styling with better visual hierarchy
+- Settings panel loads on-demand for performance
+
 ## 2025-07-04 - Git Hooks and Testing Updates
 
 ### Added 
