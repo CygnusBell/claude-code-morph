@@ -626,14 +626,11 @@ Please make the requested changes to the Claude Code Morph source code."""
             
         # Only handle keys if this panel has focus (is visible and active)
         if not self.has_focus:
+            logging.debug(f"EmulatedTerminalPanel: Ignoring key '{event.key}' - panel not focused")
             return
             
-        # Handle escape to return focus to panel
-        if event.key == "escape" and self.screen_display.has_focus:
-            self.screen_display.can_focus = False
-            self.focus()
-            event.stop()
-            return
+        # Handle escape key as a regular terminal input
+        # No special focus handling needed since TextArea is always display-only
             
         # Handle copy shortcuts
         if event.key == "ctrl+shift+c":
@@ -653,7 +650,7 @@ Please make the requested changes to the Claude Code Morph source code."""
             event.stop()
             return
             
-        # Handle selection keys by temporarily focusing TextArea
+        # Handle selection keys - allow TextArea to handle them for text selection
         selection_keys = {
             "shift+up", "shift+down", "shift+left", "shift+right",
             "shift+home", "shift+end", "shift+pageup", "shift+pagedown",
@@ -661,10 +658,9 @@ Please make the requested changes to the Claude Code Morph source code."""
         }
         
         if event.key in selection_keys:
-            # Temporarily enable focus for selection
-            self.screen_display.can_focus = True
-            self.screen_display.focus()
-            # Let the TextArea handle selection
+            # Allow selection keys to pass through to TextArea for text selection
+            # Don't send these to Claude process - they're for UI interaction only
+            # Don't stop the event so TextArea can handle selection
             return
             
         if not self.claude_process or not self.claude_process.isalive():
@@ -685,18 +681,22 @@ Please make the requested changes to the Claude Code Morph source code."""
             # Don't stop the event, just return to let it propagate
             return
             
-        # If TextArea has focus, remove it for normal typing
-        if hasattr(self.screen_display, 'has_focus') and self.screen_display.has_focus:
-            self.screen_display.can_focus = False
-            self.focus()  # Return focus to panel
+        # TextArea is always display-only, no need to manage its focus
+        # All input is handled by the Panel directly
             
         # Fast dictionary lookup for special keys
         key_sequence = self._KEY_MAP.get(event.key)
         if key_sequence:
+            # Send special key sequences (including arrow keys) to Claude
             self.claude_process.send(key_sequence)
+            logging.debug(f"Sent special key '{event.key}' as sequence '{repr(key_sequence)}' to Claude")
         elif event.character and len(event.character) == 1:
             # Direct character send for regular keys
             self.claude_process.send(event.character)
+            logging.debug(f"Sent character '{event.character}' to Claude")
+        else:
+            # Log unhandled keys for debugging
+            logging.debug(f"Unhandled key event: '{event.key}' (character: {repr(event.character)})")
             
         event.stop()
         
@@ -754,19 +754,15 @@ Please make the requested changes to the Claude Code Morph source code."""
             self.reader_thread.join(timeout=1)
             
     def on_mouse_down(self, event) -> None:
-        """Handle mouse down to enable text selection."""
+        """Handle mouse down for text selection without focus changes."""
         # Check if we have screen_display
         if not hasattr(self, 'screen_display') or not self.screen_display:
             return
             
-        # Enable focus when clicking on the terminal
-        if self.screen_display.region.contains(event.x, event.y):
-            self.screen_display.can_focus = True
-            self.screen_display.focus()
-        else:
-            # Clicking outside removes focus
-            self.screen_display.can_focus = False
-            self.focus()
+        # TextArea remains display-only (can_focus=False) but can still handle mouse selection
+        # Focus always stays on the Panel for keyboard input
+        # Mouse selection works without changing focus
+        pass
         
     def on_mouse_up(self, event) -> None:
         """Handle mouse up after selection."""
