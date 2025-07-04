@@ -11,14 +11,23 @@
   - Added checks for CONTEXT_AVAILABLE before initializing
   - Better error messages when context dependencies are missing
   - Prevents crashes when trying to use context features without deps
+- Virtual environment detection issues
+  - Added smart launcher script that finds the correct venv
+  - Updated run_morph.sh to show which Python is being used
+  - Fixed "already satisfied" but not working dependency issues
 
 ### Added
 - Created debugging tools and documentation
   - `debug_domquery.py` - Enhanced debug script with monkey patches
   - `docs/DEBUGGING.md` - Comprehensive debugging guide
   - Better error logging throughout the application
+- Development tools
+  - `check_context_deps.py` - Diagnostic tool for dependency issues
+  - `setup.sh` - Interactive setup script for new users
+  - `morph` - Smart launcher that auto-detects the correct venv
 
 ### Changed
 - Context manager initialization now fails gracefully
 - Tab switching methods now show user-friendly error notifications
 - Context tab activation shows helpful message about missing dependencies
+- run_morph.sh now displays which Python interpreter is being used

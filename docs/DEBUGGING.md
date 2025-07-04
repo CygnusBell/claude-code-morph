@@ -65,14 +65,45 @@ pip install -e .[context]
 
 ### 4. Context Tab Not Available
 
-**Symptom**: Context tab missing or showing errors.
+**Symptom**: Context tab missing or showing errors, or showing "requirements not installed" even though pip says "already satisfied".
 
-**Cause**: Optional dependencies not installed.
+**Cause**: Multiple issues can cause this:
+1. Optional dependencies not installed
+2. Using wrong Python/pip (system vs virtual environment)
+3. Multiple virtual environments with different installations
 
-**Solution**:
-```bash
-pip install -e .[context]
-```
+**Solutions**:
+
+1. **Check which Python you're using**:
+   ```bash
+   which python
+   which pip
+   ```
+   If it shows `/usr/bin/python`, you're using system Python!
+
+2. **Use the correct virtual environment**:
+   ```bash
+   source venv/bin/activate  # or .venv/bin/activate
+   pip install -e .[context]
+   ```
+
+3. **Use the provided launcher scripts**:
+   ```bash
+   ./run_morph.sh  # Automatically activates the right venv
+   # or
+   ./morph         # Smart launcher that finds the right venv
+   ```
+
+4. **Check your dependencies**:
+   ```bash
+   python check_context_deps.py
+   ```
+
+5. **If pip says "already satisfied" but it's not working**:
+   This usually means you installed to a different environment. Make sure to:
+   - Activate the venv first: `source venv/bin/activate`
+   - Then install: `pip install -e .[context]`
+   - Then run: `python -m claude_code_morph`
 
 If you still have issues with specific dependencies, you can skip them and the app will work without context features.
 

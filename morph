@@ -1,0 +1,31 @@
+#!/bin/bash
+# Claude Code Morph launcher with automatic venv activation
+
+# Disable bracketed paste mode
+printf '\e[?2004l'
+
+# Check which venv has claude-code-morph installed
+VENV_DIR=""
+for venv in venv .venv; do
+    if [ -f "$venv/bin/python" ]; then
+        if "$venv/bin/python" -c "import claude_code_morph" 2>/dev/null; then
+            VENV_DIR="$venv"
+            break
+        fi
+    fi
+done
+
+if [ -z "$VENV_DIR" ]; then
+    echo "No virtual environment with claude-code-morph found!"
+    echo "Try one of these:"
+    echo "  1. source venv/bin/activate && pip install -e ."
+    echo "  2. source .venv/bin/activate && pip install -e ."
+    exit 1
+fi
+
+# Activate the virtual environment
+echo "Using virtual environment: $VENV_DIR"
+source "$VENV_DIR/bin/activate"
+
+# Run claude-code-morph
+exec python -m claude_code_morph "$@"
