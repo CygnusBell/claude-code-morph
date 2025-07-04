@@ -224,6 +224,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+1", "main_tab", "Main Tab", show=False),
         Binding("ctrl+2", "morph_tab", "Morph Tab", show=False),
         Binding("ctrl+3", "context_tab", "Context Tab", show=False),
+        Binding("ctrl+4", "settings_tab", "Settings Tab", show=False),
     ]
     
     def __init__(self):
@@ -278,9 +279,11 @@ class ClaudeCodeMorph(App):
         # Track morph tab state
         self.morph_tab_activated = False
         self.context_tab_activated = False
+        self.settings_tab_activated = False
         self.main_panels: Dict[str, object] = {}
         self.morph_panels: Dict[str, object] = {}
         self.context_panels: Dict[str, object] = {}
+        self.settings_panels: Dict[str, object] = {}
         
     def _setup_error_logging(self) -> None:
         """Set up error logging to file."""
@@ -498,12 +501,13 @@ class ClaudeCodeMorph(App):
         # Store references to containers
         self.main_container = ResizableContainer(id="main-container")
         self.morph_container = ResizableContainer(id="morph-container")
+        self.settings_container = ResizableContainer(id="settings-container")
         if CONTEXT_AVAILABLE:
             self.context_container = ResizableContainer(id="context-container")
-            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}, context={self.context_container}")
+            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}, settings={self.settings_container}, context={self.context_container}")
         else:
             self.context_container = None
-            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container} (context unavailable)")
+            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}, settings={self.settings_container} (context unavailable)")
         
         # Create the tabbed content
         tabs = TabbedContent(id="tab-container")
@@ -512,6 +516,7 @@ class ClaudeCodeMorph(App):
         # Add tabs
         await tabs.add_pane(TabPane("Main", self.main_container, id="main-tab"))
         await tabs.add_pane(TabPane("Morph", self.morph_container, id="morph-tab"))
+        await tabs.add_pane(TabPane("Settings", self.settings_container, id="settings-tab"))
         
         # Only show Context tab if dependencies are available
         if CONTEXT_AVAILABLE:
@@ -998,6 +1003,36 @@ class ClaudeCodeMorph(App):
         except Exception as e:
             logging.error(f"Error loading context panel: {e}", exc_info=True)
             self.notify(f"Error loading context panel: {e}", severity="error")
+    
+    async def _load_settings_panel(self) -> None:
+        """Load settings panel into settings container."""
+        logging.info("=== _load_settings_panel called ===")
+        
+        # Use stored settings container reference
+        if not hasattr(self, 'settings_container'):
+            logging.error("Settings container not initialized")
+            self.notify("Error: Settings container not ready", severity="error")
+            return
+            
+        container = self.settings_container
+        
+        try:
+            # Create and add the settings panel
+            settings_params = {}
+            
+            # Add panel using the standard add_panel method
+            await self.add_panel("SettingsPanel", "settings-panel", settings_params, container)
+            
+            # Store reference in settings_panels dict
+            if "settings-panel" in self.panels:
+                self.settings_panels["settings-panel"] = self.panels["settings-panel"]
+            
+            logging.info("Settings panel loaded successfully")
+            self.notify("Settings panel loaded", severity="information")
+            
+        except Exception as e:
+            logging.error(f"Error loading settings panel: {e}", exc_info=True)
+            self.notify(f"Error loading settings panel: {e}", severity="error")
         
     async def add_panel(self, panel_type: str, panel_id: str, params: dict, container=None) -> None:
         """Dynamically load and add a panel to the layout."""
@@ -1370,6 +1405,16 @@ class ClaudeCodeMorph(App):
             logging.error(f"Error switching to context tab: {e}")
             self.notify("Error switching to context tab", severity="error")
     
+    def action_settings_tab(self) -> None:
+        """Switch to Settings tab."""
+        try:
+            tabs = self.query_one("#tab-container", TabbedContent)
+            tabs.active = "settings-tab"
+            self._activate_settings_tab()
+        except Exception as e:
+            logging.error(f"Error switching to settings tab: {e}")
+            self.notify("Error switching to settings tab", severity="error")
+    
     def _activate_morph_tab(self) -> None:
         """Initialize morph tab on first activation."""
         if not self.morph_tab_activated:
@@ -1415,6 +1460,13 @@ class ClaudeCodeMorph(App):
         except Exception as e:
             logging.error(f"Error activating context tab: {e}", exc_info=True)
             self.notify("Error loading context tab", severity="error")
+    
+    def _activate_settings_tab(self) -> None:
+        """Initialize settings tab on first activation."""
+        if not self.settings_tab_activated:
+            self.settings_tab_activated = True
+            # Load settings panel into settings container
+            self.call_later(lambda: asyncio.create_task(self._load_settings_panel()))
     
     async def _load_morph_workspace(self) -> None:
         """Load workspace configuration into morph tab."""
