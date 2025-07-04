@@ -322,13 +322,18 @@ class ClaudeCodeMorph(App):
         
         def emergency_exit(signum, frame):
             """Handle emergency exit on signal."""
+            # Write directly to stderr to ensure it's visible
+            sys.stderr.write(f"\n\n[SIGNAL] Received signal {signum}\n")
+            sys.stderr.flush()
+            
             try:
                 app_ref._force_exit_count += 1
                 
                 if app_ref._force_exit_count == 1:
                     logging.warning(f"Received signal {signum}, attempting graceful shutdown...")
-                    print("\n\n🛑 Interrupt received! Attempting graceful shutdown...")
-                    print("Press Ctrl+C again to force immediate exit.")
+                    sys.stderr.write("\n🛑 Interrupt received! Attempting graceful shutdown...\n")
+                    sys.stderr.write("Press Ctrl+C again to force immediate exit.\n")
+                    sys.stderr.flush()
                     
                     # Try graceful shutdown in a thread-safe way
                     try:
@@ -447,10 +452,18 @@ class ClaudeCodeMorph(App):
         """Create the main layout."""
         logging.info("=== compose() called ===")
         
-        # Show loading screen first
-        from .widgets.loading_screen import LoadingScreen
-        self._loading_screen = LoadingScreen()
-        yield self._loading_screen
+        try:
+            # Show loading screen first
+            from .widgets.loading_screen import LoadingScreen
+            self._loading_screen = LoadingScreen()
+            logging.info("Loading screen created")
+            yield self._loading_screen
+            logging.info("Loading screen yielded")
+        except Exception as e:
+            logging.error(f"Error creating loading screen: {e}", exc_info=True)
+            # Fallback: create UI directly
+            yield Header()
+            yield Footer()
         
         # The actual UI will be mounted in on_mount after loading
         logging.info("=== compose() completed with loading screen ===")
@@ -508,12 +521,42 @@ class ClaudeCodeMorph(App):
         logging.info(f"Python version: {sys.version}")
         logging.info(f"CONTEXT_AVAILABLE at startup: {CONTEXT_AVAILABLE}")
         
-        # Start the loading process
-        self._perform_initialization()
+        # Start the loading process with a timeout
+        try:
+            # Create the initialization task
+            init_task = self._perform_initialization()
+            
+            # Add a watchdog timer to prevent hanging
+            async def initialization_watchdog():
+                await asyncio.sleep(15.0)  # 15 second timeout
+                if not self._loading_complete:
+                    logging.error("Initialization timeout! Forcing completion...")
+                    self.notify("Initialization timeout - loading with defaults", severity="warning")
+                    # Force remove loading screen
+                    if self._loading_screen:
+                        try:
+                            await self._loading_screen.remove()
+                        except:
+                            pass
+                        self._loading_screen = None
+                    # Try to build UI anyway
+                    try:
+                        await self._build_main_ui()
+                    except Exception as e:
+                        logging.error(f"Failed to build UI after timeout: {e}")
+                    self._loading_complete = True
+            
+            # Start both the initialization and watchdog
+            asyncio.create_task(initialization_watchdog())
+            
+        except Exception as e:
+            logging.error(f"Failed to start initialization: {e}")
+            self.notify(f"Initialization error: {e}", severity="error")
     
     @work(exclusive=True)
     async def _perform_initialization(self) -> None:
         """Perform initialization with loading screen updates."""
+        logging.info("Starting _perform_initialization")
         try:
             # Step 1: Initialize base components
             if self._loading_screen:
@@ -521,26 +564,9 @@ class ClaudeCodeMorph(App):
             await asyncio.sleep(0.1)  # Allow UI to update
             
             # Step 2: Initialize context integration if available
-            if CONTEXT_AVAILABLE and ContextIntegration:
-                if self._loading_screen:
-                    self._loading_screen.update_status("Setting up context system...", 2)
-                await asyncio.sleep(0.1)
-                
-                try:
-                    logging.info("Initializing context integration...")
-                    self.context_integration = ContextIntegration()
-                    # Only initialize if dependencies are actually installed
-                    if self.context_integration and self.context_integration.available:
-                        await self.context_integration.initialize()
-                        logging.info("Context integration initialized successfully")
-                    else:
-                        logging.info("Context integration not available - dependencies missing")
-                except Exception as e:
-                    logging.error(f"Error initializing context integration: {e}", exc_info=True)
-                    self.context_integration = None
-            else:
-                logging.info("Context integration not available - dependencies missing")
-                self.context_integration = None
+            # TEMPORARILY DISABLED - causing segmentation faults
+            logging.info("Skipping context integration to avoid segfault")
+            self.context_integration = None
             
             # Step 3: Build main UI
             if self._loading_screen:

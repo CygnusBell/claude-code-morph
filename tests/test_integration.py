@@ -20,6 +20,23 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from claude_code_morph.main import ClaudeCodeMorph
 
 
+async def wait_for_app_ready(app, pilot, timeout=5.0):
+    """Wait for the app to finish loading and be ready."""
+    # Wait for loading to complete
+    start_time = asyncio.get_event_loop().time()
+    while asyncio.get_event_loop().time() - start_time < timeout:
+        # Check if loading is complete
+        if hasattr(app, '_loading_complete') and app._loading_complete:
+            break
+        # Also check if tab-container exists (fallback)
+        if app.query("#tab-container"):
+            break
+        await asyncio.sleep(0.1)
+    
+    # Give a bit more time for UI to settle
+    await asyncio.sleep(0.2)
+
+
 class TestAppStartup:
     """Test app startup and initialization."""
     
@@ -30,6 +47,9 @@ class TestAppStartup:
         with patch('claude_code_morph.main.CONTEXT_AVAILABLE', False):
             app = ClaudeCodeMorph()
             async with app.run_test() as pilot:
+                # Wait for app to be ready
+                await wait_for_app_ready(app, pilot)
+                
                 # App should start
                 assert app is not None
                 
@@ -49,6 +69,9 @@ class TestAppStartup:
                 with patch('claude_code_morph.main.ContextIntegration'):
                     app = ClaudeCodeMorph()
                     async with app.run_test() as pilot:
+                        # Wait for app to be ready
+                        await wait_for_app_ready(app, pilot)
+                        
                         # All tabs should exist
                         assert app.query("#main-tab")
                         assert app.query("#morph-tab")
@@ -63,6 +86,9 @@ class TestTabSwitching:
         """Test switching to Morph tab doesn't crash."""
         app = ClaudeCodeMorph()
         async with app.run_test() as pilot:
+            # Wait for app to be ready
+            await wait_for_app_ready(app, pilot)
+            
             # Try to switch to morph tab
             await pilot.press("ctrl+2")
             
@@ -74,6 +100,9 @@ class TestTabSwitching:
         """Test cycling through tabs with Ctrl+Tab."""
         app = ClaudeCodeMorph()
         async with app.run_test() as pilot:
+            # Wait for app to be ready
+            await wait_for_app_ready(app, pilot)
+            
             # Get initial tab
             tabbed = app.query_one("#tab-container")
             initial_tab = tabbed.active
@@ -96,6 +125,9 @@ class TestDOMQueryErrors:
         """Test that querying for missing widgets doesn't crash the app."""
         app = ClaudeCodeMorph()
         async with app.run_test() as pilot:
+            # Wait for app to be ready
+            await wait_for_app_ready(app, pilot)
+            
             # Try to query for a non-existent widget
             try:
                 app.query_one("#non-existent-widget")
@@ -111,6 +143,9 @@ class TestDOMQueryErrors:
             with patch('claude_code_morph.main.ContextManager'):
                 app = ClaudeCodeMorph()
                 async with app.run_test() as pilot:
+                    # Wait for app to be ready
+                    await wait_for_app_ready(app, pilot)
+                    
                     # Switch to context tab
                     await pilot.press("ctrl+3")
                     
@@ -129,6 +164,9 @@ class TestPanelLoading:
         """Test that Morph panel loads with terminal."""
         app = ClaudeCodeMorph()
         async with app.run_test() as pilot:
+            # Wait for app to be ready
+            await wait_for_app_ready(app, pilot)
+            
             # Switch to morph tab
             await pilot.press("ctrl+2")
             await asyncio.sleep(0.5)  # Give panels time to load
@@ -145,6 +183,9 @@ class TestPanelLoading:
         """Test that main workspace loads panels correctly."""
         app = ClaudeCodeMorph()
         async with app.run_test() as pilot:
+            # Wait for app to be ready
+            await wait_for_app_ready(app, pilot)
+            
             await asyncio.sleep(0.5)  # Give panels time to load
             
             # Check main container has panels
@@ -165,6 +206,9 @@ class TestErrorHandling:
         app.CSS = app.CSS + "\n.bad-selector { invalid-property: value; }"
         
         async with app.run_test() as pilot:
+            # Wait for app to be ready
+            await wait_for_app_ready(app, pilot)
+            
             # App should still start despite CSS issues
             assert app.is_running
     
@@ -173,6 +217,9 @@ class TestErrorHandling:
         """Test that reload action (Ctrl+T) doesn't crash."""
         app = ClaudeCodeMorph()
         async with app.run_test() as pilot:
+            # Wait for app to be ready
+            await wait_for_app_ready(app, pilot)
+            
             # Try to reload
             await pilot.press("ctrl+t")
             await asyncio.sleep(0.5)
@@ -209,6 +256,9 @@ class TestRealWorldScenarios:
         """Test rapidly switching between tabs (user mashing keys)."""
         app = ClaudeCodeMorph()
         async with app.run_test() as pilot:
+            # Wait for app to be ready
+            await wait_for_app_ready(app, pilot)
+            
             # Rapidly switch tabs
             for _ in range(10):
                 await pilot.press("ctrl+tab")
@@ -224,6 +274,9 @@ class TestRealWorldScenarios:
         with patch('pathlib.Path.exists', return_value=False):
             app = ClaudeCodeMorph()
             async with app.run_test() as pilot:
+                # Wait for app to be ready
+                await wait_for_app_ready(app, pilot)
+                
                 # Should start with default workspace
                 assert app.is_running
                 

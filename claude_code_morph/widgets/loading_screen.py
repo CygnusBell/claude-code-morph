@@ -11,6 +11,8 @@ from rich.align import Align
 class LoadingScreen(Vertical):
     """A loading screen with progress indicator and status messages."""
     
+    can_focus = False  # Don't capture keyboard focus
+    
     DEFAULT_CSS = """
     LoadingScreen {
         width: 100%;
