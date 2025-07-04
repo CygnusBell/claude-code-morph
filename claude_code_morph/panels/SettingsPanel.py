@@ -154,11 +154,13 @@ class SettingsPanel(BasePanel):
     
     def __init__(self, **kwargs):
         """Initialize the Settings panel."""
+        logging.info(f"SettingsPanel.__init__ called with kwargs: {kwargs}")
         super().__init__(**kwargs)
         self.current_file: Optional[ConfigFile] = None
         self.original_content: Optional[str] = None
         self.has_changes = False
         self.config_files: Dict[str, ConfigFile] = self._build_config_tree()
+        logging.info(f"SettingsPanel initialized with {len(self.config_files)} config files")
         
     def _build_config_tree(self) -> Dict[str, ConfigFile]:
         """Build the configuration file tree structure."""
@@ -235,6 +237,8 @@ class SettingsPanel(BasePanel):
         
     def compose_content(self) -> ComposeResult:
         """Compose the settings panel layout."""
+        logging.info("SettingsPanel.compose_content called!")
+        
         with Horizontal():
             # File browser
             with Vertical(classes="file-browser"):

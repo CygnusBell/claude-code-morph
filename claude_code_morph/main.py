@@ -729,6 +729,14 @@ class ClaudeCodeMorph(App):
             else:
                 logging.info("Context tab not loaded - dependencies missing")
             
+            # Load settings panel directly into settings container
+            try:
+                logging.info("Loading settings panel into settings container")
+                await self._load_settings_panel()
+                logging.info("Settings panel loaded successfully")
+            except Exception as e:
+                logging.error(f"Error loading settings panel: {e}", exc_info=True)
+            
             # Schedule a full refresh after a short delay to ensure everything is laid out
             self.set_timer(0.5, self._force_full_refresh)
             
@@ -1038,19 +1046,26 @@ class ClaudeCodeMorph(App):
             return
             
         container = self.settings_container
+        logging.info(f"Settings container found: {container}, is_mounted: {container.is_mounted}")
+        logging.info(f"Settings container children: {len(container.children)}")
         
         try:
             # Create and add the settings panel
             settings_params = {}
             
             # Add panel using the standard add_panel method
+            logging.info("About to add SettingsPanel to container")
             await self.add_panel("SettingsPanel", "settings-panel", settings_params, container)
             
             # Store reference in settings_panels dict
             if "settings-panel" in self.panels:
                 self.settings_panels["settings-panel"] = self.panels["settings-panel"]
+                logging.info("Settings panel reference stored in settings_panels dict")
+            else:
+                logging.error("settings-panel not found in self.panels after add_panel")
             
             logging.info("Settings panel loaded successfully")
+            logging.info(f"Container children after load: {len(container.children)}")
             self.notify("Settings panel loaded", severity="information")
             
         except Exception as e:
@@ -1430,12 +1445,15 @@ class ClaudeCodeMorph(App):
     
     def action_settings_tab(self) -> None:
         """Switch to Settings tab."""
+        logging.info("action_settings_tab called")
         try:
             tabs = self.query_one("#tab-container", TabbedContent)
+            logging.info(f"Found TabbedContent, current active: {tabs.active}")
             tabs.active = "settings-tab"
+            logging.info(f"Set active tab to settings-tab, now active: {tabs.active}")
             self._activate_settings_tab()
         except Exception as e:
-            logging.error(f"Error switching to settings tab: {e}")
+            logging.error(f"Error switching to settings tab: {e}", exc_info=True)
             self.notify("Error switching to settings tab", severity="error")
     
     def _activate_morph_tab(self) -> None:
@@ -1486,10 +1504,14 @@ class ClaudeCodeMorph(App):
     
     def _activate_settings_tab(self) -> None:
         """Initialize settings tab on first activation."""
+        logging.info(f"_activate_settings_tab called, settings_tab_activated={self.settings_tab_activated}")
         if not self.settings_tab_activated:
             self.settings_tab_activated = True
+            logging.info("First settings tab activation - loading settings panel")
             # Load settings panel into settings container
             self.call_later(lambda: asyncio.create_task(self._load_settings_panel()))
+        else:
+            logging.info("Settings tab already activated")
     
     async def _load_morph_workspace(self) -> None:
         """Load workspace configuration into morph tab."""

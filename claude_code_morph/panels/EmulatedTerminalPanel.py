@@ -19,9 +19,11 @@ import re
 
 try:
     from .BasePanel import BasePanel
+    from .BasePanel import CLIPBOARD_AVAILABLE
 except ImportError:
     # Fallback for when module is loaded dynamically
     from claude_code_morph.panels.BasePanel import BasePanel
+    from claude_code_morph.panels.BasePanel import CLIPBOARD_AVAILABLE
 
 
 class EmulatedTerminalPanel(BasePanel):
@@ -74,6 +76,8 @@ class EmulatedTerminalPanel(BasePanel):
         Binding("ctrl+c", "interrupt", "Interrupt", show=False),
         Binding("ctrl+r", "restart", "New Session", show=False),
         Binding("ctrl+d", "send_eof", "Send EOF", show=False),
+        Binding("ctrl+shift+c", "copy_terminal", "Copy", show=False),
+        Binding("ctrl+shift+v", "paste_terminal", "Paste", show=False),
     ]
     
     def __init__(self, working_dir: Optional[str] = None, **kwargs):
@@ -553,6 +557,15 @@ Please make the requested changes to the Claude Code Morph source code."""
         self.screen_display.write("[yellow]Restarting Claude CLI...[/yellow]")
         await self.start_claude_cli()
         
+    def action_send_eof(self) -> None:
+        """Send EOF (Ctrl+D) to the terminal."""
+        if self.claude_process and self.claude_process.isalive():
+            try:
+                self.claude_process.sendeof()
+                logging.debug("Sent EOF to terminal")
+            except Exception as e:
+                logging.error(f"Failed to send EOF: {e}")
+        
     # Optimized key mapping dictionary for fast lookups
     _KEY_MAP = {
         "up": '\x1b[A',
@@ -581,6 +594,8 @@ Please make the requested changes to the Claude Code Morph source code."""
             "ctrl+q",       # Quit
             "ctrl+shift+f", # Safe Mode
             "ctrl+t",       # Reload All
+            "ctrl+shift+c", # Copy
+            "ctrl+shift+v", # Paste
         }
         
         if event.key in app_bindings:
@@ -651,3 +666,67 @@ Please make the requested changes to the Claude Code Morph source code."""
                 
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=1)
+            
+    def get_copyable_content(self) -> str:
+        """Get the terminal screen content for copying."""
+        return self._get_screen_text()
+        
+    def get_selected_content(self) -> str:
+        """Get selected content from terminal. Currently returns all content."""
+        # Terminal doesn't have selection, so return all content
+        return self.get_copyable_content()
+        
+    def action_copy_terminal(self) -> None:
+        """Copy terminal content to clipboard."""
+        try:
+            content = self.get_copyable_content()
+            if content:
+                self._copy_to_clipboard(content)
+                self.app.notify("Terminal content copied to clipboard", severity="information")
+            else:
+                self.app.notify("No content to copy", severity="warning")
+        except Exception as e:
+            logging.error(f"Error copying terminal content: {e}")
+            self.app.notify(f"Copy failed: {str(e)}", severity="error")
+            
+    def action_paste_terminal(self) -> None:
+        """Paste clipboard content into terminal."""
+        try:
+            # Import clipboard functions from BasePanel
+            from pathlib import Path
+            clipboard_file = Path.home() / ".claude-code-morph" / "clipboard.txt"
+            
+            # Try to read from clipboard file first
+            content = None
+            if clipboard_file.exists():
+                try:
+                    content = clipboard_file.read_text()
+                    logging.debug(f"Read {len(content)} characters from clipboard file")
+                except Exception as e:
+                    logging.warning(f"Could not read clipboard file: {e}")
+                    
+            # If no content from file, try system clipboard
+            if not content:
+                try:
+                    if CLIPBOARD_AVAILABLE:
+                        import pyperclip
+                        content = pyperclip.paste()
+                    else:
+                        self.app.notify("Clipboard not available", severity="warning")
+                        return
+                except Exception as e:
+                    logging.error(f"Could not read from system clipboard: {e}")
+                    self.app.notify("Could not access clipboard", severity="error")
+                    return
+                    
+            if content and self.claude_process and self.claude_process.isalive():
+                # Send the pasted content to the terminal
+                self.claude_process.send(content)
+                self.app.notify(f"Pasted {len(content)} characters", severity="information")
+            elif not self.claude_process or not self.claude_process.isalive():
+                self.app.notify("Terminal not running", severity="warning")
+            else:
+                self.app.notify("No content to paste", severity="warning")
+        except Exception as e:
+            logging.error(f"Error pasting to terminal: {e}")
+            self.app.notify(f"Paste failed: {str(e)}", severity="error")
