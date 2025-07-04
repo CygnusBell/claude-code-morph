@@ -34,7 +34,13 @@ except ImportError:
     tiktoken = None
     logger.warning("tiktoken not available - token counting disabled")
 
-from .context_manager import ContextManager, CLAUDE_DIR
+try:
+    from .context_manager import ContextManager, CLAUDE_DIR, CHROMADB_AVAILABLE
+except ImportError as e:
+    ContextManager = None
+    CLAUDE_DIR = Path.home() / ".claude"  # Default value
+    CHROMADB_AVAILABLE = False
+    logger.warning(f"context_manager import error: {e} - context features disabled")
 
 
 if WATCHDOG_AVAILABLE:
@@ -86,7 +92,12 @@ class ContextIntegration:
     
     def __init__(self, project_root: Optional[str] = None):
         """Initialize the context integration system."""
-        self.context_manager = ContextManager(project_root)
+        self.available = CHROMADB_AVAILABLE and ContextManager is not None
+        if self.available:
+            self.context_manager = ContextManager(project_root)
+        else:
+            self.context_manager = None
+            logger.warning("Context system not available due to missing dependencies")
         self.tokenizer = tiktoken.get_encoding("cl100k_base") if tiktoken else None
         self.conversation_observer = None
         self.ui_update_callbacks = []
@@ -94,7 +105,7 @@ class ContextIntegration:
         
     async def initialize(self) -> None:
         """Initialize the context system and start watching for conversations."""
-        if self._initialized:
+        if self._initialized or not self.available:
             return
             
         # Initialize context manager
@@ -131,6 +142,10 @@ class ContextIntegration:
             logger.warning("Conversation watcher already running")
             return
             
+        if not CLAUDE_DIR:
+            logger.warning("Claude directory not available")
+            return
+            
         # Ensure Claude directory exists
         CLAUDE_DIR.mkdir(exist_ok=True)
         
@@ -159,6 +174,10 @@ class ContextIntegration:
             
     async def process_conversation_file(self, file_path: Path) -> None:
         """Process a Claude conversation file and add to context."""
+        if not self.available or not self.context_manager:
+            logger.warning("Context system not available - cannot process conversation")
+            return
+            
         try:
             # Read the conversation content
             content = file_path.read_text(encoding='utf-8')
@@ -203,7 +222,7 @@ class ContextIntegration:
         - weight: Current weight multiplier
         - timestamp: When added
         """
-        if not self.context_manager.collection:
+        if not self.available or not self.context_manager or not self.context_manager.collection:
             return []
             
         try:
@@ -247,6 +266,9 @@ class ContextIntegration:
             # Return all entries if no query
             return self.get_all_context_entries()[:max_results]
             
+        if not self.available or not self.context_manager:
+            return []
+            
         try:
             # Perform semantic search
             results = self.context_manager.search_context(query, n_results=max_results)
@@ -280,6 +302,9 @@ class ContextIntegration:
         
         Returns True if successful, False otherwise.
         """
+        if not self.available or not self.context_manager:
+            return False
+            
         try:
             self.context_manager.update_weight(doc_id, new_weight)
             self._notify_ui_update()
@@ -294,6 +319,9 @@ class ContextIntegration:
         
         Returns True if successful, False otherwise.
         """
+        if not self.available or not self.context_manager:
+            return False
+            
         try:
             self.context_manager.delete_from_context(doc_id)
             self._notify_ui_update()
@@ -455,8 +483,12 @@ class TerminalContextHelper:
             
 
 # Convenience function for initialization
-async def create_context_integration(project_root: Optional[str] = None) -> ContextIntegration:
+async def create_context_integration(project_root: Optional[str] = None) -> Optional[ContextIntegration]:
     """Create and initialize a context integration instance."""
     integration = ContextIntegration(project_root)
-    await integration.initialize()
-    return integration
+    if integration.available:
+        await integration.initialize()
+        return integration
+    else:
+        logger.warning("Context integration not available due to missing dependencies")
+        return None

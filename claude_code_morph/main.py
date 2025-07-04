@@ -23,8 +23,16 @@ from datetime import datetime
 # from watchdog.observers import Observer
 # from watchdog.events import FileSystemEventHandler
 from .session_manager import SessionManager
-from .context_manager import ContextManager
-from .context_integration import ContextIntegration, TerminalContextHelper
+try:
+    from .context_manager import ContextManager, CHROMADB_AVAILABLE
+    from .context_integration import ContextIntegration, TerminalContextHelper
+    CONTEXT_AVAILABLE = CHROMADB_AVAILABLE
+except ImportError:
+    ContextManager = None
+    ContextIntegration = None
+    TerminalContextHelper = None
+    CONTEXT_AVAILABLE = False
+    logging.warning("Context features not available due to missing dependencies")
 
 console = Console()
 
@@ -363,8 +371,12 @@ class ClaudeCodeMorph(App):
         # Store references to containers
         self.main_container = ResizableContainer(id="main-container")
         self.morph_container = ResizableContainer(id="morph-container")
-        self.context_container = ResizableContainer(id="context-container")
-        logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}, context={self.context_container}")
+        if CONTEXT_AVAILABLE:
+            self.context_container = ResizableContainer(id="context-container")
+            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}, context={self.context_container}")
+        else:
+            self.context_container = None
+            logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container} (context unavailable)")
         
         # Create the tabbed content with context managers
         with TabbedContent(id="tab-container"):
@@ -372,8 +384,10 @@ class ClaudeCodeMorph(App):
                 yield self.main_container
             with TabPane("Morph", id="morph-tab"):
                 yield self.morph_container
-            with TabPane("Context", id="context-tab"):
-                yield self.context_container
+            # Only show Context tab if dependencies are available
+            if CONTEXT_AVAILABLE:
+                with TabPane("Context", id="context-tab"):
+                    yield self.context_container
         
         yield Footer()
         logging.info("=== compose() completed ===")
@@ -394,15 +408,20 @@ class ClaudeCodeMorph(App):
         """Called when the app starts."""
         logging.info("=== on_mount called ===")
         
-        # Initialize context integration
-        try:
-            logging.info("Initializing context integration...")
-            self.context_integration = ContextIntegration()
-            await self.context_integration.initialize()
-            logging.info("Context integration initialized successfully")
-        except Exception as e:
-            logging.error(f"Error initializing context integration: {e}", exc_info=True)
-            self.notify(f"Context system error: {e}", severity="warning")
+        # Initialize context integration if available
+        if CONTEXT_AVAILABLE and ContextIntegration:
+            try:
+                logging.info("Initializing context integration...")
+                self.context_integration = ContextIntegration()
+                await self.context_integration.initialize()
+                logging.info("Context integration initialized successfully")
+            except Exception as e:
+                logging.error(f"Error initializing context integration: {e}", exc_info=True)
+                self.notify(f"Context system error: {e}", severity="warning")
+                self.context_integration = None
+        else:
+            logging.info("Context integration not available - dependencies missing")
+            self.context_integration = None
         
         # Log the widget tree
         self._log_widget_tree()
@@ -498,13 +517,16 @@ class ClaudeCodeMorph(App):
         except Exception as e:
             logging.error(f"Error loading morph workspace: {e}", exc_info=True)
         
-        # Load context panel directly into context container
-        try:
-            logging.info("Loading context panel into context container")
-            await self.load_context_panel_direct(self.context_container)
-            logging.info("Context panel loaded successfully")
-        except Exception as e:
-            logging.error(f"Error loading context panel: {e}", exc_info=True)
+        # Load context panel directly into context container if tab exists
+        if CONTEXT_AVAILABLE:
+            try:
+                logging.info("Loading context panel into context container")
+                await self.load_context_panel_direct(self.context_container)
+                logging.info("Context panel loaded successfully")
+            except Exception as e:
+                logging.error(f"Error loading context panel: {e}", exc_info=True)
+        else:
+            logging.info("Context tab not loaded - dependencies missing")
         
         # Schedule a full refresh after a short delay to ensure everything is laid out
         self.set_timer(0.5, self._force_full_refresh)
@@ -767,6 +789,12 @@ class ClaudeCodeMorph(App):
     async def load_context_panel_direct(self, container) -> None:
         """Load the context panel directly into the context container."""
         logging.info("=== load_context_panel_direct called ===")
+        
+        if not CONTEXT_AVAILABLE:
+            logging.info("Context features not available - showing info panel")
+            # Still load the panel to show the informational message
+            await self.add_panel("ContextPanel", "context-panel", {}, container)
+            return
         
         try:
             # Create and add the context panel

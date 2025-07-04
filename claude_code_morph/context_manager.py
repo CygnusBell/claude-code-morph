@@ -14,13 +14,52 @@ from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime
 import mimetypes
 
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
-import tiktoken
-import pymupdf  # PyMuPDF for PDF processing
+# Try to import optional dependencies
+CHROMADB_AVAILABLE = False
+SENTENCE_TRANSFORMERS_AVAILABLE = False
+WATCHDOG_AVAILABLE = False
+TIKTOKEN_AVAILABLE = False
+PYMUPDF_AVAILABLE = False
+
+try:
+    import chromadb
+    from chromadb.config import Settings
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    chromadb = None
+    Settings = None
+    logging.warning("ChromaDB not available - context features will be limited")
+
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SentenceTransformer = None
+    logging.warning("sentence-transformers not available - semantic search disabled")
+
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler, FileSystemEvent
+    WATCHDOG_AVAILABLE = True
+except ImportError:
+    Observer = None
+    FileSystemEventHandler = object
+    FileSystemEvent = None
+    logging.warning("watchdog not available - file watching disabled")
+
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    tiktoken = None
+    logging.warning("tiktoken not available - token counting disabled")
+
+try:
+    import pymupdf  # PyMuPDF for PDF processing
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    pymupdf = None
+    logging.warning("PyMuPDF not available - PDF processing disabled")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -34,24 +73,32 @@ CLAUDE_DIR = Path.home() / ".claude"
 CHUNK_SIZE = 400  # Target tokens per chunk
 OVERLAP = 50  # Token overlap between chunks
 
+# Export availability flags
+__all__ = ['ContextManager', 'CHROMADB_AVAILABLE', 'SENTENCE_TRANSFORMERS_AVAILABLE', 
+           'WATCHDOG_AVAILABLE', 'TIKTOKEN_AVAILABLE', 'PYMUPDF_AVAILABLE',
+           'MORPH_DIR', 'META_FILE', 'CHROMA_DIR', 'CLAUDE_DIR', 'CHUNK_SIZE', 'OVERLAP']
 
-class FileChangeHandler(FileSystemEventHandler):
-    """Handle file system events for automatic context updates."""
-    
-    def __init__(self, context_manager):
-        self.context_manager = context_manager
+
+if WATCHDOG_AVAILABLE:
+    class FileChangeHandler(FileSystemEventHandler):
+        """Handle file system events for automatic context updates."""
         
-    def on_modified(self, event: FileSystemEvent):
-        if not event.is_directory:
-            self.context_manager._process_file_change(event.src_path, "modified")
+        def __init__(self, context_manager):
+            self.context_manager = context_manager
             
-    def on_created(self, event: FileSystemEvent):
-        if not event.is_directory:
-            self.context_manager._process_file_change(event.src_path, "created")
-            
-    def on_deleted(self, event: FileSystemEvent):
-        if not event.is_directory:
-            self.context_manager._process_file_change(event.src_path, "deleted")
+        def on_modified(self, event: FileSystemEvent):
+            if not event.is_directory:
+                self.context_manager._process_file_change(event.src_path, "modified")
+                
+        def on_created(self, event: FileSystemEvent):
+            if not event.is_directory:
+                self.context_manager._process_file_change(event.src_path, "created")
+                
+        def on_deleted(self, event: FileSystemEvent):
+            if not event.is_directory:
+                self.context_manager._process_file_change(event.src_path, "deleted")
+else:
+    FileChangeHandler = None
 
 
 class ContextManager:
@@ -62,8 +109,9 @@ class ContextManager:
         self.embedder = None
         self.client = None
         self.collection = None
-        self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        self.tokenizer = tiktoken.get_encoding("cl100k_base") if TIKTOKEN_AVAILABLE else None
         self.observer = None
+        self.available = CHROMADB_AVAILABLE
         
     def init_context_system(self) -> None:
         """Initialize the context system, creating directories and ChromaDB."""
@@ -76,9 +124,17 @@ class ContextManager:
         if not META_FILE.exists():
             self._prompt_for_metadata()
         
+        if not CHROMADB_AVAILABLE:
+            logger.warning("ChromaDB not available - context features will be limited")
+            return
+            
         # Initialize SentenceTransformer
-        logger.info("Loading embedding model...")
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        if SENTENCE_TRANSFORMERS_AVAILABLE:
+            logger.info("Loading embedding model...")
+            self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        else:
+            logger.warning("sentence-transformers not available - semantic search disabled")
+            return
         
         # Initialize ChromaDB
         logger.info("Initializing ChromaDB...")
@@ -118,6 +174,17 @@ class ContextManager:
         
     def chunk_text(self, text: str, limit: int = CHUNK_SIZE) -> List[str]:
         """Split text into chunks of approximately `limit` tokens."""
+        if not self.tokenizer:
+            # Fallback to simple character-based chunking
+            # Approximate 4 characters per token
+            char_limit = limit * 4
+            chunks = []
+            if len(text) <= char_limit:
+                return [text]
+            for i in range(0, len(text), char_limit - OVERLAP * 4):
+                chunks.append(text[i:i + char_limit])
+            return chunks
+            
         tokens = self.tokenizer.encode(text)
         chunks = []
         
@@ -139,8 +206,9 @@ class ContextManager:
         
     def add_to_context(self, text: str, source: str, metadata: Dict[str, Any] = None) -> List[str]:
         """Add text to ChromaDB context, returning chunk IDs."""
-        if not self.collection:
-            raise RuntimeError("Context system not initialized")
+        if not self.collection or not self.embedder:
+            logger.warning("Context system not fully initialized - cannot add to context")
+            return []
             
         metadata = metadata or {}
         metadata["source"] = source
@@ -171,8 +239,9 @@ class ContextManager:
         
     def search_context(self, query: str, n_results: int = 25) -> List[Tuple[str, float, Dict]]:
         """Search context using semantic similarity."""
-        if not self.collection:
-            raise RuntimeError("Context system not initialized")
+        if not self.collection or not self.embedder:
+            logger.warning("Context system not fully initialized - cannot search")
+            return []
             
         # Create query embedding
         query_embedding = self.embedder.encode(query).tolist()
@@ -203,7 +272,8 @@ class ContextManager:
     def update_weight(self, doc_id: str, weight: float) -> None:
         """Update the weight of a document in the context."""
         if not self.collection:
-            raise RuntimeError("Context system not initialized")
+            logger.warning("Context system not initialized - cannot update weight")
+            return
             
         # Get existing document
         result = self.collection.get(ids=[doc_id])
@@ -223,7 +293,8 @@ class ContextManager:
     def delete_from_context(self, doc_id: str) -> None:
         """Remove a document from the context."""
         if not self.collection:
-            raise RuntimeError("Context system not initialized")
+            logger.warning("Context system not initialized - cannot delete")
+            return
             
         self.collection.delete(ids=[doc_id])
         logger.info(f"Deleted document {doc_id}")
@@ -258,6 +329,9 @@ class ContextManager:
         """Extract text content from a file."""
         try:
             if file_path.suffix.lower() == '.pdf':
+                if not PYMUPDF_AVAILABLE:
+                    logger.warning(f"PyMuPDF not available - cannot read PDF file: {file_path}")
+                    return None
                 # Extract text from PDF
                 text = ""
                 with pymupdf.open(str(file_path)) as pdf:
@@ -276,7 +350,8 @@ class ContextManager:
     def ingest_project_files(self, patterns: List[str] = None) -> int:
         """Scan and ingest all project files."""
         if not self.collection:
-            raise RuntimeError("Context system not initialized")
+            logger.warning("Context system not initialized - cannot ingest files")
+            return 0
             
         # Default patterns
         if not patterns:
@@ -362,6 +437,10 @@ class ContextManager:
                 
     def watch_files(self) -> None:
         """Start monitoring file changes in the project."""
+        if not WATCHDOG_AVAILABLE:
+            logger.warning("watchdog not available - file watching disabled")
+            return
+            
         if self.observer:
             logger.warning("File watcher already running")
             return
@@ -414,7 +493,13 @@ class ContextManager:
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about the context database."""
         if not self.collection:
-            raise RuntimeError("Context system not initialized")
+            logger.warning("Context system not initialized - no stats available")
+            return {
+                "total_chunks": 0,
+                "unique_sources": 0,
+                "sources": [],
+                "available": False
+            }
             
         # Get collection count
         count = self.collection.count()
@@ -431,7 +516,8 @@ class ContextManager:
         return {
             "total_chunks": count,
             "unique_sources": len(sources),
-            "sources": sorted(sources)
+            "sources": sorted(sources),
+            "available": True
         }
 
 

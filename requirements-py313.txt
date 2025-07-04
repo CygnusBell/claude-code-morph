@@ -1,0 +1,36 @@
+# Claude Code Morph Requirements - Python 3.13 Compatible Version
+# This file contains alternative packages for Python 3.13 compatibility
+
+# Core UI and terminal packages
+textual==0.47.1
+rich==13.7.0
+pyyaml==6.0.1
+
+# LLM API clients
+groq==0.4.2
+openai==1.12.0
+anthropic==0.18.0
+
+# Async and system utilities
+# Note: asyncio is built into Python, removing separate package
+watchdog==4.0.0
+pyperclip==1.8.2
+
+# Terminal emulation
+pexpect==4.9.0
+pyte==0.8.2
+
+# Vector database and embeddings
+chromadb==0.4.22
+sentence-transformers==2.2.2
+
+# Document processing
+pypdf==3.17.4
+
+# Alternative tokenization options for Python 3.13
+# Using transformers tokenizers instead of tiktoken
+transformers>=4.36.0
+
+# Optional: If you need OpenAI-compatible tokenization
+# You can try installing tiktoken from source:
+# pip install git+https://github.com/openai/tiktoken.git

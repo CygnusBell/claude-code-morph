@@ -74,6 +74,13 @@ class ContextPanel(BasePanel):
         text-align: left;
         color: $text-muted;
     }
+    
+    ContextPanel .no-context-message {
+        padding: 2;
+        color: $text-muted;
+        text-align: center;
+        margin-top: 4;
+    }
     """
     
     BINDINGS = [
@@ -92,6 +99,7 @@ class ContextPanel(BasePanel):
         self.filtered_entries: List[Dict[str, Any]] = []
         self.selected_row: Optional[int] = None
         self.context_integration = None  # Will be set by app
+        self.context_available = False  # Will be set based on dependencies
         
         # Initialize with sample data for now (replace with ChromaDB later)
         self._init_sample_data()
@@ -140,31 +148,54 @@ class ContextPanel(BasePanel):
         
     def compose_content(self) -> ComposeResult:
         """Compose the context panel layout."""
-        # Search container
-        with Horizontal(classes="search-container"):
-            yield Input(
-                placeholder="Search context...",
-                id="search-input"
-            )
-            yield Button("🔄 Refresh", classes="refresh-button", id="refresh-btn")
-        
-        # Context table
-        with VerticalScroll(classes="context-table-container"):
-            table = DataTable(id="context-table")
-            yield table
-        
-        # Stats footer
-        with Horizontal(classes="stats-footer"):
-            yield Label(
-                f"Total: {len(self.context_entries)} entries",
-                id="stats-label",
-                classes="stats-label"
-            )
+        # Check if context system is available
+        try:
+            from ..context_manager import CHROMADB_AVAILABLE
+            self.context_available = CHROMADB_AVAILABLE
+        except ImportError:
+            self.context_available = False
+            
+        if not self.context_available:
+            # Show message when dependencies are missing
+            with Vertical(classes="context-table-container"):
+                yield Static(
+                    "Context features are not available.\n\n"
+                    "To enable context features, install the required dependencies:\n\n"
+                    "pip install chromadb sentence-transformers watchdog tiktoken pymupdf\n\n"
+                    "After installation, restart the application.",
+                    id="no-context-message",
+                    classes="no-context-message"
+                )
+        else:
+            # Normal UI when dependencies are available
+            # Search container
+            with Horizontal(classes="search-container"):
+                yield Input(
+                    placeholder="Search context...",
+                    id="search-input"
+                )
+                yield Button("🔄 Refresh", classes="refresh-button", id="refresh-btn")
+            
+            # Context table
+            with VerticalScroll(classes="context-table-container"):
+                table = DataTable(id="context-table")
+                yield table
+            
+            # Stats footer
+            with Horizontal(classes="stats-footer"):
+                yield Label(
+                    f"Total: {len(self.context_entries)} entries",
+                    id="stats-label",
+                    classes="stats-label"
+                )
     
     def on_mount(self) -> None:
         """Initialize the data table when mounted."""
         super().on_mount()
         
+        if not self.context_available:
+            return
+            
         # Get the data table
         table = self.query_one("#context-table", DataTable)
         
