@@ -1,0 +1,23 @@
+# Context Demo workspace configuration for Claude Code Morph
+name: context-demo
+layout:
+  # Top panel - Context Manager
+  - type: ContextPanel
+    id: context
+    params: {}
+  
+  # Middle panel - Prompt Generator
+  - type: PromptPanel
+    id: prompt
+    params: {}
+      
+  # Bottom panel - Claude Terminal
+  - type: EmulatedTerminalPanel
+    id: terminal
+    params: {}
+
+# Additional settings
+settings:
+  theme: dark
+  auto_save: true
+  hot_reload: true

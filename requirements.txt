@@ -9,3 +9,7 @@ watchdog==4.0.0
 pyperclip==1.8.2
 pexpect==4.9.0
 pyte==0.8.2
+chromadb==0.4.22
+sentence-transformers==2.2.2
+pypdf==3.17.4
+tiktoken==0.5.2

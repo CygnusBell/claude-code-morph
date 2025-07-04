@@ -88,6 +88,7 @@ class EmulatedTerminalPanel(BasePanel):
         self._is_processing = False  # Track if Claude is processing
         self._claude_started = False  # Track if Claude has shown initial prompt
         self.working_dir = working_dir  # Store the working directory
+        self.context_helper = None  # Will be set by app if context integration is available
         
         # Initialize pyte terminal emulator
         self.terminal_screen = pyte.Screen(120, 40)  # 120 columns, 40 rows
@@ -424,6 +425,10 @@ class EmulatedTerminalPanel(BasePanel):
             return
             
         logging.info(f"Sending prompt: {prompt[:50]}... (mode: {mode})")
+        
+        # Enhance prompt with context if available
+        if self.context_helper:
+            prompt = self.context_helper.enhance_prompt_with_context(prompt, mode)
         
         # Add mode context if needed
         if mode.lower() == 'morph':

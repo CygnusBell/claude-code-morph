@@ -23,6 +23,8 @@ from datetime import datetime
 # from watchdog.observers import Observer
 # from watchdog.events import FileSystemEventHandler
 from .session_manager import SessionManager
+from .context_manager import ContextManager
+from .context_integration import ContextIntegration, TerminalContextHelper
 
 console = Console()
 
@@ -89,6 +91,13 @@ class ClaudeCodeMorph(App):
     }
     
     #morph-container {
+        height: 100%;
+        width: 100%;
+        background: $surface;
+        overflow: auto;
+    }
+    
+    #context-container {
         height: 100%;
         width: 100%;
         background: $surface;
@@ -203,6 +212,7 @@ class ClaudeCodeMorph(App):
         Binding("ctrl+tab", "switch_tab", "Switch Tab", show=False),
         Binding("ctrl+1", "main_tab", "Main Tab", show=False),
         Binding("ctrl+2", "morph_tab", "Morph Tab", show=False),
+        Binding("ctrl+3", "context_tab", "Context Tab", show=False),
     ]
     
     def __init__(self):
@@ -230,10 +240,16 @@ class ClaudeCodeMorph(App):
         self.session_manager = SessionManager()
         self._auto_save_timer = None
         
+        # Initialize context manager and integration
+        self.context_manager = ContextManager()
+        self.context_integration = None  # Will be initialized in on_mount
+        
         # Track morph tab state
         self.morph_tab_activated = False
+        self.context_tab_activated = False
         self.main_panels: Dict[str, object] = {}
         self.morph_panels: Dict[str, object] = {}
+        self.context_panels: Dict[str, object] = {}
         
     def _setup_error_logging(self) -> None:
         """Set up error logging to file."""
@@ -347,7 +363,8 @@ class ClaudeCodeMorph(App):
         # Store references to containers
         self.main_container = ResizableContainer(id="main-container")
         self.morph_container = ResizableContainer(id="morph-container")
-        logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}")
+        self.context_container = ResizableContainer(id="context-container")
+        logging.info(f"Created containers: main={self.main_container}, morph={self.morph_container}, context={self.context_container}")
         
         # Create the tabbed content with context managers
         with TabbedContent(id="tab-container"):
@@ -355,6 +372,8 @@ class ClaudeCodeMorph(App):
                 yield self.main_container
             with TabPane("Morph", id="morph-tab"):
                 yield self.morph_container
+            with TabPane("Context", id="context-tab"):
+                yield self.context_container
         
         yield Footer()
         logging.info("=== compose() completed ===")
@@ -374,6 +393,16 @@ class ClaudeCodeMorph(App):
     async def on_mount(self) -> None:
         """Called when the app starts."""
         logging.info("=== on_mount called ===")
+        
+        # Initialize context integration
+        try:
+            logging.info("Initializing context integration...")
+            self.context_integration = ContextIntegration()
+            await self.context_integration.initialize()
+            logging.info("Context integration initialized successfully")
+        except Exception as e:
+            logging.error(f"Error initializing context integration: {e}", exc_info=True)
+            self.notify(f"Context system error: {e}", severity="warning")
         
         # Log the widget tree
         self._log_widget_tree()
@@ -468,6 +497,14 @@ class ClaudeCodeMorph(App):
             logging.info("Morph workspace loaded successfully")
         except Exception as e:
             logging.error(f"Error loading morph workspace: {e}", exc_info=True)
+        
+        # Load context panel directly into context container
+        try:
+            logging.info("Loading context panel into context container")
+            await self.load_context_panel_direct(self.context_container)
+            logging.info("Context panel loaded successfully")
+        except Exception as e:
+            logging.error(f"Error loading context panel: {e}", exc_info=True)
         
         # Schedule a full refresh after a short delay to ensure everything is laid out
         self.set_timer(0.5, self._force_full_refresh)
@@ -726,6 +763,33 @@ class ClaudeCodeMorph(App):
         except Exception as e:
             logging.error(f"Error loading morph workspace: {e}", exc_info=True)
             self.notify(f"Error loading morph workspace: {e}", severity="error")
+    
+    async def load_context_panel_direct(self, container) -> None:
+        """Load the context panel directly into the context container."""
+        logging.info("=== load_context_panel_direct called ===")
+        
+        try:
+            # Create and add the context panel
+            context_params = {}
+            
+            # Add panel using the standard add_panel method
+            await self.add_panel("ContextPanel", "context-panel", context_params, container)
+            
+            # Connect context integration to the panel
+            if "context-panel" in self.panels and self.context_integration:
+                context_panel = self.panels["context-panel"]
+                context_panel.context_integration = self.context_integration
+                
+                # Load initial data
+                await context_panel.load_context_from_chromadb()
+                logging.info("Context panel connected to integration")
+            
+            logging.info("Context panel loaded successfully")
+            self.notify("Context panel loaded", severity="information")
+            
+        except Exception as e:
+            logging.error(f"Error loading context panel: {e}", exc_info=True)
+            self.notify(f"Error loading context panel: {e}", severity="error")
         
     async def add_panel(self, panel_type: str, panel_id: str, params: dict, container=None) -> None:
         """Dynamically load and add a panel to the layout."""
@@ -940,6 +1004,10 @@ class ClaudeCodeMorph(App):
             tabbed = self.query_one("#tab-container", TabbedContent)
             if tabbed.active == "main-tab":
                 tabbed.active = "morph-tab"
+                self._activate_morph_tab()
+            elif tabbed.active == "morph-tab":
+                tabbed.active = "context-tab"
+                self._activate_context_tab()
             else:
                 tabbed.active = "main-tab"
         except Exception as e:
@@ -1072,12 +1140,31 @@ class ClaudeCodeMorph(App):
         tabs.active = "morph-tab"
         self._activate_morph_tab()
     
+    def action_context_tab(self) -> None:
+        """Switch to Context tab."""
+        tabs = self.query_one("#tab-container", TabbedContent)
+        tabs.active = "context-tab"
+        self._activate_context_tab()
+    
     def _activate_morph_tab(self) -> None:
         """Initialize morph tab on first activation."""
         if not self.morph_tab_activated:
             self.morph_tab_activated = True
             # Load workspace into morph container
             self.call_later(lambda: asyncio.create_task(self._load_morph_workspace()))
+    
+    def _activate_context_tab(self) -> None:
+        """Initialize context tab on first activation or refresh if needed."""
+        if not self.context_tab_activated:
+            self.context_tab_activated = True
+            logging.info("Context tab activated for the first time")
+        
+        # Refresh the context panel to show latest data
+        if "context-panel" in self.panels:
+            context_panel = self.panels["context-panel"]
+            if hasattr(context_panel, 'refresh_entries'):
+                logging.info("Refreshing context panel entries")
+                self.call_later(lambda: asyncio.create_task(context_panel.refresh_entries()))
     
     async def _load_morph_workspace(self) -> None:
         """Load workspace configuration into morph tab."""
@@ -1126,6 +1213,20 @@ class ClaudeCodeMorph(App):
         """Connect the prompt panel to the terminal panel."""
         logging.info("=== _connect_panels called ===")
         logging.info(f"Current panels in self.panels: {list(self.panels.keys())}")
+        
+        # Connect context integration to terminal panels if available
+        if self.context_integration:
+            # Connect to main terminal
+            for panel_id, panel in self.panels.items():
+                if 'terminal' in panel_id.lower() and hasattr(panel, 'context_helper'):
+                    panel.context_helper = TerminalContextHelper(self.context_integration)
+                    logging.info(f"Connected context helper to {panel_id}")
+            
+            # Connect to morph terminal
+            for panel_id, panel in self.morph_panels.items():
+                if 'terminal' in panel_id.lower() and hasattr(panel, 'context_helper'):
+                    panel.context_helper = TerminalContextHelper(self.context_integration)
+                    logging.info(f"Connected context helper to morph {panel_id}")
         
         prompt_panel = self.panels.get("prompt")
         terminal_panel = self.panels.get("terminal")
@@ -1234,6 +1335,24 @@ class ClaudeCodeMorph(App):
             
         # Save every 30 seconds
         self._auto_save_timer = self.set_timer(30, auto_save, pause=False)
+    
+    async def action_quit(self) -> None:
+        """Clean up resources before quitting."""
+        try:
+            # Clean up context integration
+            if self.context_integration:
+                logging.info("Cleaning up context integration...")
+                await self.context_integration.cleanup()
+            
+            # Save session before quitting
+            self._save_session()
+            
+            # Call parent quit
+            await super().action_quit()
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
+            # Quit anyway
+            await super().action_quit()
         
     def _log_widget_tree(self, widget=None, level=0):
         """Log the widget tree for debugging."""
@@ -1265,6 +1384,9 @@ class ClaudeCodeMorph(App):
         if hasattr(self, 'morph_container'):
             self.morph_container.refresh(layout=True, repaint=True)
             self.morph_container._apply_sizes()
+        if hasattr(self, 'context_container'):
+            self.context_container.refresh(layout=True, repaint=True)
+            self.context_container._apply_sizes()
         
     def on_unmount(self) -> None:
         """Clean up when app exits."""
