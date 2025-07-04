@@ -105,13 +105,15 @@ class EmulatedTerminalPanel(BasePanel):
         self.working_dir = working_dir  # Store the working directory
         self.context_helper = None  # Will be set by app if context integration is available
         
-        # Initialize pyte terminal emulator
-        self.terminal_screen = pyte.Screen(120, 40)  # 120 columns, 40 rows
+        # Initialize pyte terminal emulator  
+        self.terminal_columns = 120
+        self.terminal_rows = 40
+        self.terminal_screen = pyte.Screen(self.terminal_columns, self.terminal_rows)
         self.terminal_stream = pyte.ByteStream(self.terminal_screen)
         
         # Performance optimization: cache frequently accessed properties
-        self._screen_lines = 40
-        self._screen_columns = 120
+        self._screen_lines = self.terminal_rows
+        self._screen_columns = self.terminal_columns
         self._cached_screen_text = ""
         self._screen_dirty = True
         
@@ -211,8 +213,8 @@ class EmulatedTerminalPanel(BasePanel):
             # Set up environment
             env = os.environ.copy()
             env['TERM'] = 'xterm-256color'
-            env['COLUMNS'] = '120'
-            env['LINES'] = '40'
+            env['COLUMNS'] = str(self.terminal_columns)
+            env['LINES'] = str(self.terminal_rows)
             
             # Build command with proper flags
             cmd = ['claude', '--dangerously-skip-permissions']
@@ -224,7 +226,7 @@ class EmulatedTerminalPanel(BasePanel):
             self.claude_process = pexpect.spawn(
                 cmd[0],
                 args=cmd[1:],
-                dimensions=(40, 120),
+                dimensions=(self.terminal_rows, self.terminal_columns),
                 env=env,
                 timeout=None,
                 echo=False,
@@ -419,11 +421,22 @@ class EmulatedTerminalPanel(BasePanel):
         # Optimize by processing entire rows at once
         buffer = self.terminal_screen.buffer
         for y in range(self._screen_lines):
-            # Extract character data in one pass, avoiding repeated attribute access
+            # Extract character data with better handling of character types
             row = buffer[y]
-            char_data = [char.data or " " for char in row.values()]
-            # Join all characters at once instead of repeated concatenation
-            lines[y] = ''.join(char_data).rstrip()
+            char_list = []
+            for x in range(self._screen_columns):
+                char = row.get(x)
+                if char is not None:
+                    # Handle different character data types properly
+                    if hasattr(char, 'data') and char.data:
+                        char_list.append(char.data)
+                    else:
+                        # Use space for empty or None characters
+                        char_list.append(" ")
+                else:
+                    char_list.append(" ")
+            # Don't rstrip() to preserve terminal formatting
+            lines[y] = ''.join(char_list)
         
         # Cache the result
         self._cached_screen_text = '\n'.join(lines)
