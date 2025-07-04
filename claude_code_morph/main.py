@@ -461,13 +461,13 @@ class ClaudeCodeMorph(App):
         # Start auto-save timer (30 seconds)
         self._start_auto_save()
         
-        # Add placeholder content to Morph tab
+        # Load morph workspace directly into morph container
         try:
-            logging.info("Adding MorphPanel to morph container")
-            await self.add_panel("MorphPanel", "morph", {}, self.morph_container)
-            logging.info("MorphPanel added successfully")
+            logging.info("Loading morph workspace into morph container")
+            await self.load_morph_workspace_direct(self.morph_container)
+            logging.info("Morph workspace loaded successfully")
         except Exception as e:
-            logging.error(f"Error adding MorphPanel: {e}", exc_info=True)
+            logging.error(f"Error loading morph workspace: {e}", exc_info=True)
         
         # Schedule a full refresh after a short delay to ensure everything is laid out
         self.set_timer(0.5, self._force_full_refresh)
@@ -688,6 +688,45 @@ class ClaudeCodeMorph(App):
             await container.mount(
                 Static(f"[red]Error loading morph workspace: {e}[/red]")
             )
+    
+    async def load_morph_workspace_direct(self, container) -> None:
+        """Load the morph workspace directly into the morph container."""
+        logging.info("=== load_morph_workspace_direct called ===")
+        
+        try:
+            # Get morph source directory
+            morph_source_dir = Path(__file__).parent.absolute()
+            logging.info(f"Loading morph workspace with source dir: {morph_source_dir}")
+            
+            # Import panel classes
+            from .panels.PromptPanel import PromptPanel
+            from .panels.EmulatedTerminalPanel import EmulatedTerminalPanel
+            
+            # Create and add panels directly to the ResizableContainer
+            prompt_params = {"id": "morph-prompt-panel"}
+            terminal_params = {
+                "id": "morph-terminal-panel", 
+                "working_dir": str(morph_source_dir)
+            }
+            
+            # Add panels using the standard add_panel method
+            await self.add_panel("PromptPanel", "morph-prompt", prompt_params, container)
+            await self.add_panel("EmulatedTerminalPanel", "morph-terminal", terminal_params, container)
+            
+            # Connect panels
+            if "morph-prompt" in self.panels and "morph-terminal" in self.panels:
+                prompt_panel = self.panels["morph-prompt"]
+                terminal_panel = self.panels["morph-terminal"]
+                if hasattr(prompt_panel, 'set_terminal_panel'):
+                    prompt_panel.set_terminal_panel(terminal_panel)
+                    logging.info("Connected morph prompt panel to terminal panel")
+            
+            logging.info("Morph workspace loaded successfully")
+            self.notify("Morph workspace loaded", severity="information")
+            
+        except Exception as e:
+            logging.error(f"Error loading morph workspace: {e}", exc_info=True)
+            self.notify(f"Error loading morph workspace: {e}", severity="error")
         
     async def add_panel(self, panel_type: str, panel_id: str, params: dict, container=None) -> None:
         """Dynamically load and add a panel to the layout."""
