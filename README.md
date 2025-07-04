@@ -21,7 +21,7 @@ See [DEVELOPER_NOTES.md](DEVELOPER_NOTES.md) for detailed information about the 
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.8+ (Python 3.12 or earlier recommended for best compatibility)
 - pip (Python package installer)
 - Claude CLI installed and configured (`claude` command available)
 - (Optional) API keys for prompt optimization:
@@ -30,83 +30,113 @@ See [DEVELOPER_NOTES.md](DEVELOPER_NOTES.md) for detailed information about the 
 
 ## Installation
 
-### Installation
+### Quick Start (Minimal Installation)
+
+The easiest way to get started is with the minimal installation that includes only the core dependencies:
 
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/claude-code-morph.git
 cd claude-code-morph
 
-# If you're in a virtual environment (recommended):
-pip install -e .
+# Create a virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install minimal dependencies
+pip install -r requirements-minimal.txt
+
+# Run the application
+python -m claude_code_morph
+```
+
+### Standard Installation (Recommended)
+
+For a more integrated experience with package management:
+
+```bash
+# Clone and enter directory
+git clone https://github.com/yourusername/claude-code-morph.git
+cd claude-code-morph
+
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install in editable mode with minimal dependencies
+pip install -e . -r requirements-minimal.txt
 
 # Run morph
 morph
 ```
 
-### For Development Projects
+### Optional: Advanced Features
 
-If you're working on a project and want to use morph:
+The app includes optional features that require additional dependencies. These are **completely optional** - the app works perfectly fine without them.
 
+#### Option 1: Using pip extras (Recommended)
 ```bash
-# In your project directory with an active venv:
+# Install with Context tab support (semantic search, embeddings)
+pip install -e ".[context]"
+
+# Install with prompt optimization support (Claude/OpenAI)
+pip install -e ".[optimization]"
+
+# Install all optional features
+pip install -e ".[all]"
+```
+
+#### Option 2: Manual installation
+```bash
+# Context tab dependencies
+pip install chromadb sentence-transformers watchdog tiktoken pypdf
+
+# Prompt optimization dependencies
+pip install anthropic openai groq
+
+# Or install everything from requirements.txt
+pip install -r requirements.txt
+```
+
+**Note**: If you encounter issues installing these optional dependencies, don't worry! The app will detect missing dependencies and disable those features gracefully.
+
+### Alternative Installation Methods
+
+#### Method 1: Direct from GitHub
+```bash
+# Install directly from GitHub (minimal dependencies only)
 pip install git+https://github.com/yourusername/claude-code-morph.git
 
-# Or for editable install:
-git clone https://github.com/yourusername/claude-code-morph.git
-pip install -e ./claude-code-morph
-
-# Now morph is available in your project's venv
+# Run morph
 morph
+```
+
+#### Method 2: Development Install
+```bash
+# For development with all features
+git clone https://github.com/yourusername/claude-code-morph.git
+cd claude-code-morph
+pip install -e . -r requirements.txt
 ```
 
 ## Usage
 
-### Global Command (After Installation)
+### Running Morph
+
+After installation, you can run morph in several ways:
+
 ```bash
-# Launch in current directory
+# If installed with pip install -e
 morph
 
 # Launch in specific directory
 morph --cwd /path/to/project
-```
 
-### Legacy Launcher Scripts (No Installation Required)
-If you prefer not to install, you can still use the launcher scripts:
+# Direct module execution (always works)
+python -m claude_code_morph
 
-**Linux/macOS:**
-```bash
-./morph
-```
-
-**Windows:**
-```cmd
-morph.bat
-```
-
-These launchers will:
-- Create a virtual environment if it doesn't exist
-- Install all required dependencies automatically
-- Launch the application
-
-### Manual Setup
-
-If you prefer to manage the virtual environment yourself:
-
-```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate it
-source venv/bin/activate  # Linux/macOS
-# or
-venv\Scripts\activate.bat  # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-python main.py
+# Legacy method (from root directory)
+python claude_code_morph/main.py
 ```
 
 The app automatically loads the default workspace with Prompt Panel and Terminal Panel.
@@ -256,16 +286,88 @@ This creates a powerful feedback loop where you can use Claude to:
 
 ## Troubleshooting
 
-- **Claude CLI not starting**: Ensure `claude` command is in your PATH
-- **Prompt optimization not working**: Check API keys are set correctly
-- **Hot-reload not working**: Check file permissions in the `panels/` directory
-- **UI freezing**: Use Ctrl+K to interrupt Claude operations
+### Common Installation Issues
+
+#### Python Version Compatibility
+- **Python 3.13 issues**: Some dependencies may have compatibility issues with Python 3.13. Use Python 3.12 or earlier for best results.
+- **Check your Python version**: `python --version`
+- **Use pyenv or conda** to manage multiple Python versions if needed
+
+#### Dependency Installation Failures
+
+**1. Build Tools Missing**
+```bash
+# On Ubuntu/Debian:
+sudo apt-get install build-essential python3-dev cmake pkg-config
+
+# On macOS:
+xcode-select --install
+brew install cmake pkg-config
+
+# On Windows:
+# Install Visual Studio Build Tools or use WSL
+```
+
+**2. ChromaDB Installation Issues** (Optional dependency)
+```bash
+# If chromadb fails, try:
+pip install --upgrade pip setuptools wheel
+pip install chromadb --no-cache-dir
+
+# Or skip it entirely - the app works without it!
+```
+
+**3. Sentence Transformers Issues** (Optional dependency)
+```bash
+# If sentence-transformers fails due to torch:
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install sentence-transformers
+```
+
+**4. Package Conflicts**
+```bash
+# Create a fresh virtual environment
+python -m venv fresh_venv
+source fresh_venv/bin/activate
+pip install -r requirements-minimal.txt
+```
+
+### Runtime Issues
+
+- **Claude CLI not starting**: 
+  - Ensure `claude` command is in your PATH
+  - Test with: `claude --version`
+  - If not found, install Claude CLI first
+
+- **Prompt optimization not working**: 
+  - Check API keys are set correctly
+  - Test with: `echo $ANTHROPIC_API_KEY` or `echo $OPENAI_API_KEY`
+
+- **Hot-reload not working**: 
+  - Check file permissions in the `panels/` directory
+  - Ensure watchdog is installed (optional dependency)
+
+- **UI freezing**: 
+  - Use Ctrl+K to interrupt Claude operations
+  - Check terminal output for error messages
+
+- **Context tab shows "not available"**:
+  - This is normal if optional dependencies aren't installed
+  - Install them with: `pip install chromadb sentence-transformers watchdog tiktoken pypdf`
+
 - **Copy/Paste not working over SSH**: 
   - The app uses OSC 52 escape sequences for clipboard support over SSH
   - **iTerm2**: Works by default
   - **Terminal.app**: Enable in Preferences → Profiles → Advanced → "Allow sending of clipboard contents"
   - **tmux**: Add `set -g set-clipboard on` to ~/.tmux.conf
   - **kitty, alacritty**: Usually work by default
+
+### Getting Help
+
+1. **Check the logs**: Look for `app.log` and `main.log` in the project directory
+2. **Run in verbose mode**: Set environment variable `CCM_DEBUG=true`
+3. **Test minimal setup**: Try running with just `requirements-minimal.txt` first
+4. **Report issues**: Include Python version, OS, and error messages
 
 ## Future Enhancements
 
