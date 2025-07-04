@@ -249,8 +249,17 @@ class ClaudeCodeMorph(App):
         self._auto_save_timer = None
         
         # Initialize context manager and integration
-        self.context_manager = ContextManager()
-        self.context_integration = None  # Will be initialized in on_mount
+        if CONTEXT_AVAILABLE:
+            try:
+                self.context_manager = ContextManager()
+                self.context_integration = None  # Will be initialized in on_mount
+            except Exception as e:
+                logging.error(f"Error initializing context manager: {e}")
+                self.context_manager = None
+                self.context_integration = None
+        else:
+            self.context_manager = None
+            self.context_integration = None
         
         # Track morph tab state
         self.morph_tab_activated = False
@@ -413,8 +422,12 @@ class ClaudeCodeMorph(App):
             try:
                 logging.info("Initializing context integration...")
                 self.context_integration = ContextIntegration()
-                await self.context_integration.initialize()
-                logging.info("Context integration initialized successfully")
+                # Only initialize if dependencies are actually installed
+                if self.context_integration and self.context_integration.available:
+                    await self.context_integration.initialize()
+                    logging.info("Context integration initialized successfully")
+                else:
+                    logging.info("Context integration not available - dependencies missing")
             except Exception as e:
                 logging.error(f"Error initializing context integration: {e}", exc_info=True)
                 self.notify(f"Context system error: {e}", severity="warning")
@@ -1150,29 +1163,45 @@ class ClaudeCodeMorph(App):
     
     def action_switch_tab(self) -> None:
         """Switch between Main and Morph tabs."""
-        tabs = self.query_one("#tab-container", TabbedContent)
-        if tabs.active == "main-tab":
-            tabs.active = "morph-tab"
-            self._activate_morph_tab()
-        else:
-            tabs.active = "main-tab"
+        try:
+            tabs = self.query_one("#tab-container", TabbedContent)
+            if tabs.active == "main-tab":
+                tabs.active = "morph-tab"
+                self._activate_morph_tab()
+            else:
+                tabs.active = "main-tab"
+        except Exception as e:
+            logging.error(f"Error switching tabs: {e}")
+            self.notify("Error switching tabs", severity="error")
     
     def action_main_tab(self) -> None:
         """Switch to Main tab."""
-        tabs = self.query_one("#tab-container", TabbedContent)
-        tabs.active = "main-tab"
+        try:
+            tabs = self.query_one("#tab-container", TabbedContent)
+            tabs.active = "main-tab"
+        except Exception as e:
+            logging.error(f"Error switching to main tab: {e}")
+            self.notify("Error switching to main tab", severity="error")
     
     def action_morph_tab(self) -> None:
         """Switch to Morph tab."""
-        tabs = self.query_one("#tab-container", TabbedContent)
-        tabs.active = "morph-tab"
-        self._activate_morph_tab()
+        try:
+            tabs = self.query_one("#tab-container", TabbedContent)
+            tabs.active = "morph-tab"
+            self._activate_morph_tab()
+        except Exception as e:
+            logging.error(f"Error switching to morph tab: {e}")
+            self.notify("Error switching to morph tab", severity="error")
     
     def action_context_tab(self) -> None:
         """Switch to Context tab."""
-        tabs = self.query_one("#tab-container", TabbedContent)
-        tabs.active = "context-tab"
-        self._activate_context_tab()
+        try:
+            tabs = self.query_one("#tab-container", TabbedContent)
+            tabs.active = "context-tab"
+            self._activate_context_tab()
+        except Exception as e:
+            logging.error(f"Error switching to context tab: {e}")
+            self.notify("Error switching to context tab", severity="error")
     
     def _activate_morph_tab(self) -> None:
         """Initialize morph tab on first activation."""
@@ -1183,16 +1212,25 @@ class ClaudeCodeMorph(App):
     
     def _activate_context_tab(self) -> None:
         """Initialize context tab on first activation or refresh if needed."""
-        if not self.context_tab_activated:
-            self.context_tab_activated = True
-            logging.info("Context tab activated for the first time")
-        
-        # Refresh the context panel to show latest data
-        if "context-panel" in self.panels:
-            context_panel = self.panels["context-panel"]
-            if hasattr(context_panel, 'refresh_entries'):
-                logging.info("Refreshing context panel entries")
-                self.call_later(lambda: asyncio.create_task(context_panel.refresh_entries()))
+        try:
+            if not CONTEXT_AVAILABLE:
+                logging.warning("Context tab activated but dependencies not available")
+                self.notify("Context features require additional dependencies. Run: pip install .[context]", severity="warning")
+                return
+                
+            if not self.context_tab_activated:
+                self.context_tab_activated = True
+                logging.info("Context tab activated for the first time")
+            
+            # Refresh the context panel to show latest data
+            if "context-panel" in self.panels:
+                context_panel = self.panels["context-panel"]
+                if hasattr(context_panel, 'refresh_entries'):
+                    logging.info("Refreshing context panel entries")
+                    self.call_later(lambda: asyncio.create_task(context_panel.refresh_entries()))
+        except Exception as e:
+            logging.error(f"Error activating context tab: {e}", exc_info=True)
+            self.notify("Error loading context tab", severity="error")
     
     async def _load_morph_workspace(self) -> None:
         """Load workspace configuration into morph tab."""
