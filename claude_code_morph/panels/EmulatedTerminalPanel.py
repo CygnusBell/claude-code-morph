@@ -123,7 +123,8 @@ class EmulatedTerminalPanel(BasePanel):
                 id="terminal-screen",
                 read_only=True,
                 show_line_numbers=False,
-                tab_behavior="focus"
+                tab_behavior="focus",
+                can_focus=False  # Don't capture focus by default
             )
             # Store original write method
             self._textarea_set_text = self.screen_display.load_text
@@ -603,6 +604,13 @@ Please make the requested changes to the Claude Code Morph source code."""
     
     async def on_key(self, event: Key) -> None:
         """Handle keyboard input and send to Claude process with optimized performance."""
+        # Handle escape to return focus to panel
+        if event.key == "escape" and self.screen_display.has_focus:
+            self.screen_display.can_focus = False
+            self.focus()
+            event.stop()
+            return
+            
         # Handle copy shortcuts
         if event.key == "ctrl+shift+c":
             logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+C")
@@ -621,17 +629,17 @@ Please make the requested changes to the Claude Code Morph source code."""
             event.stop()
             return
             
-        # Let TextArea handle selection keys
+        # Handle selection keys by temporarily focusing TextArea
         selection_keys = {
             "shift+up", "shift+down", "shift+left", "shift+right",
             "shift+home", "shift+end", "shift+pageup", "shift+pagedown",
             "ctrl+a",  # Select all
-            "ctrl+c",  # Copy (let TextArea handle it)
-            "ctrl+x",  # Cut (won't work in read-only)
-            "ctrl+v",  # Paste (won't work in read-only)
         }
         
         if event.key in selection_keys:
+            # Temporarily enable focus for selection
+            self.screen_display.can_focus = True
+            self.screen_display.focus()
             # Let the TextArea handle selection
             return
             
@@ -652,6 +660,11 @@ Please make the requested changes to the Claude Code Morph source code."""
             logging.info(f"EmulatedTerminalPanel: Letting {event.key} bubble up to app")
             # Don't stop the event, just return to let it propagate
             return
+            
+        # If TextArea has focus, remove it for normal typing
+        if self.screen_display.has_focus:
+            self.screen_display.can_focus = False
+            self.focus()  # Return focus to panel
             
         # Fast dictionary lookup for special keys
         key_sequence = self._KEY_MAP.get(event.key)
@@ -716,6 +729,26 @@ Please make the requested changes to the Claude Code Morph source code."""
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=1)
             
+    def on_mouse_down(self, event) -> None:
+        """Handle mouse down to enable text selection."""
+        # Check if we have screen_display
+        if not hasattr(self, 'screen_display') or not self.screen_display:
+            return
+            
+        # Enable focus when clicking on the terminal
+        if self.screen_display.region.contains(event.x, event.y):
+            self.screen_display.can_focus = True
+            self.screen_display.focus()
+        else:
+            # Clicking outside removes focus
+            self.screen_display.can_focus = False
+            self.focus()
+        
+    def on_mouse_up(self, event) -> None:
+        """Handle mouse up after selection."""
+        # Keep focus for now to allow copying
+        pass
+        
     def get_copyable_content(self) -> str:
         """Get the terminal screen content for copying."""
         # If there's a selection in the TextArea, use that
