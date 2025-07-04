@@ -155,10 +155,10 @@ class ContextManager:
             logger.info("Created new context collection")
             
     def _prompt_for_metadata(self) -> None:
-        """Prompt user for project metadata on first run."""
-        print("\n=== First Time Setup ===")
-        project_name = input("Project name: ") or self.project_root.name
-        description = input("Project description: ") or "No description provided"
+        """Create default metadata for first run."""
+        # In a TUI app, we can't use input() - use sensible defaults
+        project_name = self.project_root.name
+        description = "A Claude Code Morph project"
         
         metadata = {
             "project_name": project_name,

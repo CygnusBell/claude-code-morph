@@ -13,7 +13,7 @@ openai==1.12.0
 anthropic==0.18.0
 
 # Async and system utilities
-asyncio==3.4.3
+# asyncio is built into Python 3.4+ - do not install separately
 watchdog==4.0.0
 pyperclip==1.8.2
 

@@ -36,7 +36,6 @@ extras_require = {
         'groq>=0.4.2',
         'openai>=1.12.0',
         'anthropic>=0.18.0',
-        'asyncio>=3.4.3',
     ]
 }
 
