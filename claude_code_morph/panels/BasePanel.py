@@ -55,8 +55,12 @@ class BasePanel(Static):
     DEFAULT_CSS = """
     BasePanel {
         layout: vertical;
+        height: 100%;
+        width: 100%;
         margin: 0;
         padding: 0;
+        overflow: auto;
+        background: $surface;
     }
     
     .panel-header {
@@ -70,7 +74,7 @@ class BasePanel(Static):
     .panel-name {
         width: 1fr;
         text-align: left;
-        color: $text-muted;
+        color: #a0a0a0;  /* Visible muted text */
         text-style: italic;
     }
     
@@ -415,8 +419,22 @@ class BasePanel(Static):
             
         # Handle widget hover detection
         if self.is_morph_mode_active():
-            # Use the event coordinates directly
-            self._check_widget_hover(event.x, event.y)
+            # Convert event coordinates to screen coordinates
+            screen_x = event.screen_x if hasattr(event, 'screen_x') else event.x
+            screen_y = event.screen_y if hasattr(event, 'screen_y') else event.y
+            
+            # Use screen coordinates for widget detection
+            self._check_widget_hover(screen_x, screen_y)
+            
+            # Debug log
+            if hasattr(self, '_last_log_time'):
+                import time
+                if time.time() - self._last_log_time > 1:  # Log once per second
+                    logging.info(f"Mouse move in morph mode at panel:({event.x}, {event.y}) screen:({screen_x}, {screen_y})")
+                    self._last_log_time = time.time()
+            else:
+                import time
+                self._last_log_time = time.time()
             
     def on_mouse_up(self, event) -> None:
         """Handle mouse release to end selection."""
@@ -564,20 +582,59 @@ class BasePanel(Static):
         if not self.is_morph_mode_active():
             return
             
-        # Find the widget at the mouse position within this panel
-        widget = None
-        for child in self.walk_children():
-            if hasattr(child, 'region'):
-                # Check if mouse is within this child's region
-                region = child.region
+        # Log what we're looking for
+        logging.debug(f"Looking for widget at screen position ({x}, {y})")
+            
+        # Find the most specific widget at the mouse position
+        # Start with children and work our way down to find the deepest visible widget
+        candidates = []
+        
+        def check_widget_at_position(w, depth=0):
+            """Recursively check if widget contains position and track depth."""
+            if hasattr(w, 'region') and w.visible:
+                region = w.region
+                # Region coordinates are screen coordinates
                 if (region.x <= x < region.x + region.width and
                     region.y <= y < region.y + region.height):
-                    # Skip containers unless they have IDs or classes
-                    if (child.__class__.__name__ in ['Container', 'Horizontal', 'Vertical'] and 
-                        not getattr(child, 'id', None) and 
-                        not getattr(child, 'classes', set())):
-                        continue
-                    widget = child
+                    # Add this widget as a candidate
+                    candidates.append((depth, w))
+                    # Check its children for deeper matches
+                    if hasattr(w, 'children'):
+                        for child in w.children:
+                            check_widget_at_position(child, depth + 1)
+        
+        # Start checking from this panel's children
+        for child in self.children:
+            check_widget_at_position(child)
+        
+        # Also check the panel itself
+        check_widget_at_position(self)
+        
+        # Sort by depth (deepest first) and pick the most specific widget
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        
+        # Debug: log candidates
+        if candidates:
+            logging.info(f"Found {len(candidates)} widget candidates at position ({x}, {y})")
+            for depth, w in candidates[:5]:  # Log top 5
+                w_id = getattr(w, 'id', 'no-id')
+                w_region = getattr(w, 'region', 'no-region')
+                logging.info(f"  Depth {depth}: {w.__class__.__name__} (id={w_id}) region={w_region}")
+        else:
+            logging.debug(f"No widget candidates found at position ({x}, {y})")
+        
+        # Find the most relevant widget (skip pure containers without IDs)
+        widget = None
+        for depth, candidate in candidates:
+            # Skip generic containers ONLY if they have no ID AND no classes
+            # But always include containers with IDs (like queue-container)
+            if (candidate.__class__.__name__ in ['Container', 'Horizontal', 'Vertical', 'ScrollableContainer'] and 
+                not getattr(candidate, 'id', None) and 
+                not getattr(candidate, 'classes', set())):
+                logging.debug(f"Skipping container without ID or classes: {candidate}")
+                continue
+            widget = candidate
+            break
         
         # If we're hovering over a different widget or no widget
         if widget != self.hovered_widget:
@@ -646,7 +703,8 @@ class BasePanel(Static):
         # For now, use notifications to verify the hover detection is working
         logging.info(f"Showing widget label: {label_text}")
         if hasattr(self, 'app') and hasattr(self.app, 'notify'):
-            self.app.notify(label_text, severity="information", timeout=3)
+            # Use a shorter timeout so notifications don't stack up
+            self.app.notify(label_text, severity="information", timeout=1)
             
         # TODO: Implement actual floating label widget
         # self.hover_label = WidgetLabel(label_text, auto_hide_seconds=0)
@@ -792,18 +850,12 @@ class BasePanel(Static):
             
     def on_enter(self, event: Enter) -> None:
         """Handle mouse enter events on widgets."""
-        # Show widget label if in Morph Mode
-        logging.debug(f"Enter event on widget: {event.widget.__class__.__name__}")
-        morph_active = self.is_morph_mode_active()
-        logging.debug(f"Morph mode active: {morph_active}")
-        if morph_active and event.widget != self:
-            logging.debug(f"Showing widget label for {event.widget.__class__.__name__}")
-            self._show_widget_label(event.widget, 0, 0)
+        # Enter/Leave events don't have widget attribute in Textual
+        # This functionality would need to be implemented differently
+        pass
             
     def on_leave(self, event: Leave) -> None:
         """Handle mouse leave events on widgets."""
-        # Hide label when leaving a widget
-        if self.is_morph_mode_active() and self.hovered_widget == event.widget:
-            self.hovered_widget = None
-            # Clear any notifications (temporary solution)
-            # In the future, this would remove the actual floating label
+        # Enter/Leave events don't have widget attribute in Textual
+        # This functionality would need to be implemented differently
+        pass

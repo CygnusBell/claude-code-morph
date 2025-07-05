@@ -12,16 +12,18 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Static, RichLog
+from textual.widgets import Static, RichLog, TextArea
 from textual.binding import Binding
 from textual.events import Key
 import re
 
 try:
     from .BasePanel import BasePanel
+    from .BasePanel import CLIPBOARD_AVAILABLE
 except ImportError:
     # Fallback for when module is loaded dynamically
     from claude_code_morph.panels.BasePanel import BasePanel
+    from claude_code_morph.panels.BasePanel import CLIPBOARD_AVAILABLE
 
 
 class EmulatedTerminalPanel(BasePanel):
@@ -39,6 +41,10 @@ class EmulatedTerminalPanel(BasePanel):
         border: none;
     }
     
+    EmulatedTerminalPanel TextArea {
+        scrollbar-size: 1 1;
+    }
+    
     #emulated-terminal-container {
         layout: vertical;
         height: 100%;
@@ -50,15 +56,22 @@ class EmulatedTerminalPanel(BasePanel):
         height: 1fr;
         background: #0c0c0c;
         color: #f0f0f0;
-        padding: 0 1;
+        padding: 1;
         border: none;
-        overflow-y: scroll;
-        font-family: monospace;
         margin: 0;
     }
     
     #terminal-screen:focus {
         border: none;
+    }
+    
+    #terminal-screen .text-area--cursor {
+        background: #f0f0f0;
+        color: #0c0c0c;
+    }
+    
+    #terminal-screen .text-area--selection {
+        background: #4a4a4a;
     }
     
     #terminal-status {
@@ -74,9 +87,11 @@ class EmulatedTerminalPanel(BasePanel):
         Binding("ctrl+c", "interrupt", "Interrupt", show=False),
         Binding("ctrl+r", "restart", "New Session", show=False),
         Binding("ctrl+d", "send_eof", "Send EOF", show=False),
+        Binding("ctrl+shift+c", "copy_terminal", "Copy", show=False),
+        Binding("ctrl+shift+v", "paste_terminal", "Paste", show=False),
     ]
     
-    def __init__(self, **kwargs):
+    def __init__(self, working_dir: Optional[str] = None, **kwargs):
         """Initialize the emulated terminal panel."""
         super().__init__(**kwargs)
         self.claude_process: Optional[pexpect.spawn] = None
@@ -87,44 +102,116 @@ class EmulatedTerminalPanel(BasePanel):
         self.can_focus = True
         self._is_processing = False  # Track if Claude is processing
         self._claude_started = False  # Track if Claude has shown initial prompt
+        self.working_dir = working_dir  # Store the working directory
+        self.context_helper = None  # Will be set by app if context integration is available
         
-        # Initialize pyte terminal emulator
-        self.terminal_screen = pyte.Screen(120, 40)  # 120 columns, 40 rows
+        # Initialize pyte terminal emulator  
+        self.terminal_columns = 120
+        self.terminal_rows = 40
+        self.terminal_screen = pyte.Screen(self.terminal_columns, self.terminal_rows)
         self.terminal_stream = pyte.ByteStream(self.terminal_screen)
         
         # Performance optimization: cache frequently accessed properties
-        self._screen_lines = 40
-        self._screen_columns = 120
+        self._screen_lines = self.terminal_rows
+        self._screen_columns = self.terminal_columns
         self._cached_screen_text = ""
         self._screen_dirty = True
+        
+        # Display update optimization
+        self._last_displayed_content = ""
+        self._update_pending = False
+        self._last_update_time = 0
+        self._min_update_interval = 0.05  # Minimum 50ms between updates
         
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
         logging.debug("EmulatedTerminalPanel.compose_content called")
-        with Vertical(id="emulated-terminal-container"):
-            # Terminal screen display with scrolling
-            self.screen_display = RichLog(
-                highlight=False,
-                markup=True,
-                wrap=True,
-                id="terminal-screen",
-                auto_scroll=True
-            )
-            yield self.screen_display
+        try:
+            with Vertical(id="emulated-terminal-container"):
+                # Use TextArea for better selection support
+                self.screen_display = TextArea(
+                    "",
+                    language=None,
+                    theme="monokai",
+                    id="terminal-screen",
+                    read_only=True,
+                    show_line_numbers=False,
+                    tab_behavior="focus"
+                )
+                # Set can_focus after creation
+                self.screen_display.can_focus = False
+                # Store original write method
+                self._textarea_set_text = self.screen_display.load_text
+                # Add write method for compatibility
+                self.screen_display.write = self._write_to_textarea
+                yield self.screen_display
+                
+                self.status = Static("Status: Initializing...", id="terminal-status")
+                yield self.status
+        except Exception as e:
+            logging.error(f"Error in compose_content: {e}", exc_info=True)
+            # Fallback to simple static widget
+            yield Static(f"Error creating terminal: {e}")
             
-            self.status = Static("Status: Initializing...", id="terminal-status")
-            yield self.status
+    def _write_to_textarea(self, text: str) -> None:
+        """Write text to TextArea, appending to existing content."""
+        # This is only used for initial messages, the real terminal content
+        # comes from _update_display which uses the pyte screen
+        pass  # We'll update the display through _update_display instead
             
     async def on_mount(self) -> None:
         """Called when panel is mounted."""
-        self.screen_display.write("[yellow]Starting Claude CLI...[/yellow]")
-        self.screen_display.write(f"[dim]Working directory: {os.getcwd()}[/dim]")
+        logging.info("EmulatedTerminalPanel.on_mount called")
+        try:
+            # Show initial message
+            self.screen_display.load_text("Starting Claude CLI...\n")
+            working_dir = self.working_dir if self.working_dir else os.getcwd()
+            self.screen_display.load_text(f"Starting Claude CLI...\nWorking directory: {working_dir}\n")
+            
+            # Start Claude CLI process
+            await self.start_claude_cli()
+            
+            # Focus the panel to receive keyboard input
+            self.focus()
+        except Exception as e:
+            logging.error(f"Error in EmulatedTerminalPanel.on_mount: {e}", exc_info=True)
+            if hasattr(self, 'screen_display'):
+                self.screen_display.load_text(f"Error starting terminal: {e}")
+    
+    def cleanup(self) -> None:
+        """Clean up resources when panel is being destroyed."""
+        logging.info("EmulatedTerminalPanel cleanup called")
         
-        # Start Claude CLI process
-        await self.start_claude_cli()
+        # Stop the reading thread
+        self.running = False
         
-        # Focus the panel to receive keyboard input
-        self.focus()
+        # Terminate the Claude process
+        if self.claude_process:
+            try:
+                if self.claude_process.isalive():
+                    # Send exit command first
+                    try:
+                        self.claude_process.sendline('/exit')
+                        time.sleep(0.1)
+                    except:
+                        pass
+                    
+                    # Then terminate
+                    self.claude_process.terminate(force=True)
+                    self.claude_process = None
+            except Exception as e:
+                logging.error(f"Error terminating Claude process: {e}")
+        
+        # Wait for reader thread to finish
+        if self.reader_thread and self.reader_thread.is_alive():
+            self.reader_thread.join(timeout=1.0)
+            
+        # Clear the output queue
+        while not self.output_queue.empty():
+            try:
+                self.output_queue.get_nowait()
+            except:
+                break
         
     async def start_claude_cli(self) -> None:
         """Start the Claude CLI process using pexpect."""
@@ -132,20 +219,22 @@ class EmulatedTerminalPanel(BasePanel):
             # Set up environment
             env = os.environ.copy()
             env['TERM'] = 'xterm-256color'
-            env['COLUMNS'] = '120'
-            env['LINES'] = '40'
+            env['COLUMNS'] = str(self.terminal_columns)
+            env['LINES'] = str(self.terminal_rows)
+            # Enable application keypad mode for better CLI compatibility
+            env['TERM_FEATURES'] = 'application_keypad'
             
             # Build command with proper flags
             cmd = ['claude', '--dangerously-skip-permissions']
             
-            # Get the working directory - use current directory
-            working_dir = os.getcwd()
+            # Get the working directory - use provided or current directory
+            working_dir = self.working_dir if self.working_dir else os.getcwd()
             
             # Start Claude with pexpect
             self.claude_process = pexpect.spawn(
                 cmd[0],
                 args=cmd[1:],
-                dimensions=(40, 120),
+                dimensions=(self.terminal_rows, self.terminal_columns),
                 env=env,
                 timeout=None,
                 echo=False,
@@ -340,11 +429,22 @@ class EmulatedTerminalPanel(BasePanel):
         # Optimize by processing entire rows at once
         buffer = self.terminal_screen.buffer
         for y in range(self._screen_lines):
-            # Extract character data in one pass, avoiding repeated attribute access
+            # Extract character data with better handling of character types
             row = buffer[y]
-            char_data = [char.data or " " for char in row.values()]
-            # Join all characters at once instead of repeated concatenation
-            lines[y] = ''.join(char_data).rstrip()
+            char_list = []
+            for x in range(self._screen_columns):
+                char = row.get(x)
+                if char is not None:
+                    # Handle different character data types properly
+                    if hasattr(char, 'data') and char.data:
+                        char_list.append(char.data)
+                    else:
+                        # Use space for empty or None characters
+                        char_list.append(" ")
+                else:
+                    char_list.append(" ")
+            # Don't rstrip() to preserve terminal formatting
+            lines[y] = ''.join(char_list)
         
         # Cache the result
         self._cached_screen_text = '\n'.join(lines)
@@ -352,27 +452,60 @@ class EmulatedTerminalPanel(BasePanel):
         return self._cached_screen_text
         
     def _update_display(self) -> None:
-        """Update the display with optimized screen rendering."""
+        """Update the display with optimized screen rendering and change detection."""
         try:
+            import time
+            current_time = time.time()
+            
+            # Implement update debouncing to reduce flickering
+            if self._update_pending:
+                return
+                
+            time_since_last_update = current_time - self._last_update_time
+            if time_since_last_update < self._min_update_interval:
+                # Schedule delayed update if too soon since last update
+                self._update_pending = True
+                def delayed_update():
+                    self._update_pending = False
+                    self._update_display()
+                self.set_timer(self._min_update_interval - time_since_last_update, delayed_update)
+                return
+            
             # Mark screen as dirty for next _get_screen_text call
             self._screen_dirty = True
             
             # Use optimized screen text extraction
             screen_content = self._get_screen_text()
+            
+            # Only update if content has actually changed
+            if screen_content != self._last_displayed_content:
+                # Update TextArea with the new content
+                self.screen_display.load_text(screen_content)
+                self._last_displayed_content = screen_content
+                self._last_update_time = current_time
+                
+                # DON'T auto-scroll to bottom - let Claude content show naturally
+                # Only scroll to bottom if there's actual interactive content at the end
+                lines = screen_content.split('\n')
+                non_empty_lines = [i for i, line in enumerate(lines) if line.strip()]
+                
+                if non_empty_lines:
+                    # Position cursor at the last line with actual content, not empty bottom
+                    last_content_line = non_empty_lines[-1]
+                    self.screen_display.cursor_location = (min(last_content_line, self.screen_display.document.line_count - 1), 0)
+                else:
+                    # If no content, stay at top
+                    self.screen_display.cursor_location = (0, 0)
+            else:
+                # Content unchanged, just update the timestamp to prevent excessive checks
+                self._last_update_time = current_time
+            
+            # Get lines for prompt detection
             lines = screen_content.split('\n')
             
             # Remove trailing empty lines efficiently
             while lines and not lines[-1]:
                 lines.pop()
-                
-            # Clear and rewrite the display for pyte terminal emulation
-            # This is necessary because pyte maintains the full screen state
-            self.screen_display.clear()
-            
-            # Batch write non-empty lines
-            non_empty_lines = [line for line in lines if line]
-            for line in non_empty_lines:
-                self.screen_display.write(line)
                 
             # Optimize prompt detection by checking only last few lines
             if lines:
@@ -423,11 +556,30 @@ class EmulatedTerminalPanel(BasePanel):
             
         logging.info(f"Sending prompt: {prompt[:50]}... (mode: {mode})")
         
+        # Enhance prompt with context if available
+        if self.context_helper:
+            prompt = self.context_helper.enhance_prompt_with_context(prompt, mode)
+        
         # Add mode context if needed
         if mode.lower() == 'morph':
-            # Claude is already in the project root, just add context
-            prompt = f"Please work on the Claude Code Morph source code in the current directory. {prompt}"
-            logging.info(f"Morph mode: Working on Claude Code Morph source")
+            # Get the morph source directory
+            morph_dir = Path(os.environ.get("MORPH_SOURCE_DIR", Path(__file__).parent.parent)).absolute()
+            
+            # Create a more explicit morph mode prompt
+            morph_prompt = f"""[MORPH MODE ACTIVE]
+You are now editing the Claude Code Morph IDE itself.
+Source directory: {morph_dir}
+Key files:
+- Main app: {morph_dir}/main.py
+- Panels: {morph_dir}/panels/
+- Current panel: {morph_dir}/panels/EmulatedTerminalPanel.py
+
+User request: {prompt}
+
+Please make the requested changes to the Claude Code Morph source code."""
+            
+            prompt = morph_prompt
+            logging.info(f"Morph mode: Working on Claude Code Morph source at {morph_dir}")
             
         self.status.update("Status: [yellow]Processing...[/yellow]")
         self._is_processing = True  # Mark as processing
@@ -496,14 +648,29 @@ class EmulatedTerminalPanel(BasePanel):
         self.screen_display.write("[yellow]Restarting Claude CLI...[/yellow]")
         await self.start_claude_cli()
         
+    def action_send_eof(self) -> None:
+        """Send EOF (Ctrl+D) to the terminal."""
+        if self.claude_process and self.claude_process.isalive():
+            try:
+                self.claude_process.sendeof()
+                logging.debug("Sent EOF to terminal")
+            except Exception as e:
+                logging.error(f"Failed to send EOF: {e}")
+        
     # Optimized key mapping dictionary for fast lookups
     _KEY_MAP = {
-        "up": '\x1b[A',
-        "down": '\x1b[B', 
-        "left": '\x1b[D',
-        "right": '\x1b[C',
-        "home": '\x01',
-        "end": '\x05',
+        # Arrow keys - try application mode sequences first, then fallback to normal
+        "up": '\x1bOA',     # Application mode (what many CLIs expect)
+        "down": '\x1bOB', 
+        "left": '\x1bOD',
+        "right": '\x1bOC',
+        "arrow_up": '\x1bOA',
+        "arrow_down": '\x1bOB', 
+        "arrow_left": '\x1bOD',
+        "arrow_right": '\x1bOC',
+        # Other keys
+        "home": '\x1b[H',   # More standard home key
+        "end": '\x1b[F',    # More standard end key  
         "backspace": '\x7f',
         "delete": '\x1b[3~',
         "enter": '\r',
@@ -514,6 +681,59 @@ class EmulatedTerminalPanel(BasePanel):
     
     async def on_key(self, event: Key) -> None:
         """Handle keyboard input and send to Claude process with optimized performance."""
+        # COMPREHENSIVE DEBUG: Log ALL key events to see what's happening
+        logging.info(f"🔑 KEY EVENT: '{event.key}' (char: {repr(event.character)}) has_focus={self.has_focus}")
+        
+        # Special attention to arrow keys
+        if event.key in ["up", "down", "left", "right", "arrow_up", "arrow_down", "arrow_left", "arrow_right"]:
+            logging.info(f"🏹 ARROW KEY DETECTED: '{event.key}' with character: {repr(event.character)}")
+            
+        # Check if screen_display exists
+        if not hasattr(self, 'screen_display') or not self.screen_display:
+            logging.info(f"❌ No screen_display for key '{event.key}'")
+            return
+            
+        # Only handle keys if this panel has focus (is visible and active)
+        if not self.has_focus:
+            logging.info(f"❌ Panel not focused for key '{event.key}' - ignoring")
+            return
+            
+        # Handle escape key as a regular terminal input
+        # No special focus handling needed since TextArea is always display-only
+            
+        # Handle copy shortcuts
+        if event.key == "ctrl+shift+c":
+            logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+C")
+            self.action_copy_terminal()
+            event.stop()
+            return
+        elif event.key == "ctrl+c" and hasattr(self, 'screen_display') and self.screen_display and hasattr(self.screen_display, 'selected_text') and self.screen_display.selected_text:
+            # If there's selected text, copy it
+            logging.info("EmulatedTerminalPanel: Handling Ctrl+C with selection")
+            self.action_copy_terminal()
+            event.stop()
+            return
+        elif event.key == "ctrl+shift+v":
+            logging.info("EmulatedTerminalPanel: Handling Ctrl+Shift+V")
+            asyncio.create_task(self.action_paste_terminal())
+            event.stop()
+            return
+            
+        # Handle selection keys - ONLY shift+arrow keys and ctrl+a for text selection
+        # Regular arrow keys should go to Claude CLI
+        selection_keys = {
+            "shift+up", "shift+down", "shift+left", "shift+right",
+            "shift+home", "shift+end", "shift+pageup", "shift+pagedown",
+            "ctrl+a",  # Select all
+        }
+        
+        if event.key in selection_keys:
+            # Allow selection keys to pass through to TextArea for text selection
+            # Don't send these to Claude process - they're for UI interaction only
+            # Don't stop the event so TextArea can handle selection
+            logging.debug(f"Allowing selection key '{event.key}' to pass through to TextArea")
+            return
+            
         if not self.claude_process or not self.claude_process.isalive():
             return
             
@@ -523,20 +743,98 @@ class EmulatedTerminalPanel(BasePanel):
             "ctrl+l",       # Load Workspace  
             "ctrl+q",       # Quit
             "ctrl+shift+f", # Safe Mode
-            "f5",           # Reload All
+            "ctrl+t",       # Reload All
         }
         
         if event.key in app_bindings:
             # Let the event bubble up to the app
+            logging.info(f"EmulatedTerminalPanel: Letting {event.key} bubble up to app")
+            # Don't stop the event, just return to let it propagate
             return
             
+        # TextArea is always display-only, no need to manage its focus
+        # All input is handled by the Panel directly
+            
+        # ARROW KEYS: Direct raw byte approach for Claude CLI
+        if event.key in ["up", "down"]:
+            logging.info(f"🎯 RAW ARROW: Sending raw bytes for '{event.key}'")
+            
+            try:
+                if event.key == "up":
+                    # Send raw up arrow as individual bytes
+                    self.claude_process.send(b'\x1b')  # ESC
+                    self.claude_process.send(b'[')     # [
+                    self.claude_process.send(b'A')     # A
+                    logging.info(f"🎯 Sent raw UP arrow bytes: ESC [ A")
+                elif event.key == "down":
+                    # Send raw down arrow as individual bytes  
+                    self.claude_process.send(b'\x1b')  # ESC
+                    self.claude_process.send(b'[')     # [
+                    self.claude_process.send(b'B')     # B
+                    logging.info(f"🎯 Sent raw DOWN arrow bytes: ESC [ B")
+                    
+            except Exception as e:
+                logging.error(f"Error sending raw arrow bytes for '{event.key}': {e}")
+                
+                # Ultimate fallback - try writing directly to stdin
+                try:
+                    if event.key == "up":
+                        self.claude_process.sendline('\x1b[A')
+                    elif event.key == "down":
+                        self.claude_process.sendline('\x1b[B')
+                    logging.info(f"🎯 Fallback: Used sendline for '{event.key}'")
+                except Exception as e2:
+                    logging.error(f"Fallback also failed for '{event.key}': {e2}")
+            
+            event.stop()
+            return
+        
         # Fast dictionary lookup for special keys
         key_sequence = self._KEY_MAP.get(event.key)
         if key_sequence:
-            self.claude_process.send(key_sequence)
+            # Send special key sequences (including arrow keys) to Claude
+            try:
+                # Ensure the sequence is sent as bytes for proper terminal handling
+                if isinstance(key_sequence, str):
+                    key_sequence_bytes = key_sequence.encode('utf-8')
+                    self.claude_process.send(key_sequence_bytes)
+                else:
+                    self.claude_process.send(key_sequence)
+                
+                # Extra logging for arrow keys to debug the issue
+                if event.key in ["up", "down", "arrow_up", "arrow_down"]:
+                    logging.info(f"ARROW KEY DEBUG: Sent '{event.key}' as APPLICATION MODE sequence '{repr(key_sequence)}' (bytes: {repr(key_sequence_bytes) if isinstance(key_sequence, str) else repr(key_sequence)}) to Claude process")
+                else:
+                    logging.debug(f"Sent special key '{event.key}' as sequence '{repr(key_sequence)}' to Claude")
+            except Exception as e:
+                logging.error(f"Error sending key sequence for '{event.key}': {e}")
+                
+                # If application mode fails, try normal mode as fallback for arrow keys
+                if event.key in ["up", "down", "left", "right"]:
+                    fallback_sequences = {
+                        "up": '\x1b[A',
+                        "down": '\x1b[B', 
+                        "left": '\x1b[D',
+                        "right": '\x1b[C'
+                    }
+                    fallback_seq = fallback_sequences.get(event.key)
+                    if fallback_seq:
+                        try:
+                            fallback_bytes = fallback_seq.encode('utf-8')
+                            self.claude_process.send(fallback_bytes)
+                            logging.info(f"ARROW KEY DEBUG: Fallback - sent '{event.key}' as NORMAL MODE sequence '{repr(fallback_seq)}'")
+                        except Exception as e2:
+                            logging.error(f"Fallback also failed for '{event.key}': {e2}")
         elif event.character and len(event.character) == 1:
             # Direct character send for regular keys
             self.claude_process.send(event.character)
+            logging.debug(f"Sent character '{event.character}' to Claude")
+        else:
+            # Log unhandled keys for debugging - especially arrow keys
+            if event.key in ["up", "down", "arrow_up", "arrow_down", "cursor_up", "cursor_down"]:
+                logging.info(f"ARROW KEY DEBUG: Unhandled arrow key event: '{event.key}' (character: {repr(event.character)})")
+            else:
+                logging.debug(f"Unhandled key event: '{event.key}' (character: {repr(event.character)})")
             
         event.stop()
         
@@ -592,3 +890,110 @@ class EmulatedTerminalPanel(BasePanel):
                 
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=1)
+            
+    def on_mouse_down(self, event) -> None:
+        """Handle mouse down for text selection without focus changes."""
+        # Check if we have screen_display
+        if not hasattr(self, 'screen_display') or not self.screen_display:
+            return
+            
+        # TextArea remains display-only (can_focus=False) but can still handle mouse selection
+        # Focus always stays on the Panel for keyboard input
+        # Mouse selection works without changing focus
+        pass
+        
+    def on_mouse_up(self, event) -> None:
+        """Handle mouse up after selection."""
+        # Keep focus for now to allow copying
+        pass
+        
+    def get_copyable_content(self) -> str:
+        """Get the terminal screen content for copying."""
+        # If there's a selection in the TextArea, use that
+        if hasattr(self, 'screen_display') and self.screen_display:
+            if hasattr(self.screen_display, 'selected_text'):
+                selection = self.screen_display.selected_text
+                if selection:
+                    return selection
+            elif hasattr(self.screen_display, 'selection'):
+                # Try to get text from selection
+                start = self.screen_display.selection.start
+                end = self.screen_display.selection.end
+                if start != end:
+                    text = self.screen_display.text
+                    return text[start:end]
+        # Otherwise return all content
+        return self._get_screen_text()
+        
+    def get_selected_content(self) -> str:
+        """Get selected content from terminal."""
+        # Get selection from TextArea
+        if hasattr(self, 'screen_display') and self.screen_display:
+            if hasattr(self.screen_display, 'selected_text'):
+                selection = self.screen_display.selected_text
+                if selection:
+                    return selection
+            elif hasattr(self.screen_display, 'selection'):
+                # Try to get text from selection
+                start = self.screen_display.selection.start
+                end = self.screen_display.selection.end
+                if start != end:
+                    text = self.screen_display.text
+                    return text[start:end]
+        # Fall back to all content
+        return self.get_copyable_content()
+        
+    def action_copy_terminal(self) -> None:
+        """Copy terminal content to clipboard."""
+        try:
+            content = self.get_copyable_content()
+            if content:
+                self._copy_to_clipboard(content)
+                self.app.notify("Terminal content copied to clipboard", severity="information")
+            else:
+                self.app.notify("No content to copy", severity="warning")
+        except Exception as e:
+            logging.error(f"Error copying terminal content: {e}")
+            self.app.notify(f"Copy failed: {str(e)}", severity="error")
+            
+    async def action_paste_terminal(self) -> None:
+        """Paste clipboard content into terminal."""
+        try:
+            # Import clipboard functions from BasePanel
+            from pathlib import Path
+            clipboard_file = Path.home() / ".claude-code-morph" / "clipboard.txt"
+            
+            # Try to read from clipboard file first
+            content = None
+            if clipboard_file.exists():
+                try:
+                    content = clipboard_file.read_text()
+                    logging.debug(f"Read {len(content)} characters from clipboard file")
+                except Exception as e:
+                    logging.warning(f"Could not read clipboard file: {e}")
+                    
+            # If no content from file, try system clipboard
+            if not content:
+                try:
+                    if CLIPBOARD_AVAILABLE:
+                        import pyperclip
+                        content = pyperclip.paste()
+                    else:
+                        self.app.notify("Clipboard not available", severity="warning")
+                        return
+                except Exception as e:
+                    logging.error(f"Could not read from system clipboard: {e}")
+                    self.app.notify("Could not access clipboard", severity="error")
+                    return
+                    
+            if content and self.claude_process and self.claude_process.isalive():
+                # Send the pasted content to the terminal
+                self.claude_process.send(content)
+                self.app.notify(f"Pasted {len(content)} characters", severity="information")
+            elif not self.claude_process or not self.claude_process.isalive():
+                self.app.notify("Terminal not running", severity="warning")
+            else:
+                self.app.notify("No content to paste", severity="warning")
+        except Exception as e:
+            logging.error(f"Error pasting to terminal: {e}")
+            self.app.notify(f"Paste failed: {str(e)}", severity="error")

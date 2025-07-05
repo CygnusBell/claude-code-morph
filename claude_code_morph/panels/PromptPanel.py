@@ -4,7 +4,7 @@ import os
 import logging
 from typing import Optional, Callable, Dict, Any
 from textual.app import ComposeResult
-from textual.containers import Vertical, Horizontal, Center, Middle, Grid, ScrollableContainer
+from textual.containers import Vertical, Horizontal, Center, Middle, Grid, ScrollableContainer, Container
 from textual.widgets import Static, TextArea, Button, Label, Select, Input
 from textual.reactive import reactive
 from textual.widgets import OptionList
@@ -48,32 +48,17 @@ class PromptPanel(BasePanel):
     ]
     
     CSS = BasePanel.DEFAULT_CSS + """
+    /* CSS Updated: v2 - Reduced queue size */
     PromptPanel {
         layout: vertical;
-        height: 99%;
+        height: 100%;
         margin: 0;
         padding: 0;
-    }
-    
-    PromptPanel .prompt-content {
-        height: 1fr;
-        width: 100%;
-        margin: 0;
-        padding: 0;
-        layout: vertical;
-    }
-    
-    PromptPanel .panel-title {
-        height: 1;
-        padding: 0 1;
-        text-align: center;
-        background: $primary;
-        margin: 0;
     }
     
     PromptPanel #prompt-input {
         height: 1fr;
-        min-height: 10;
+        min-height: 3;
         margin: 0 1;
         padding: 1;
         background: $surface;
@@ -101,41 +86,6 @@ class PromptPanel(BasePanel):
         background: $surface;
         border: solid $primary;
         margin-left: auto;
-        text-style: none;
-    }
-    
-    PromptPanel #morph-mode-btn {
-        background: $panel;
-        border: solid $primary;
-        min-width: 13;
-        text-style: none;
-    }
-    
-    PromptPanel #morph-mode-btn:hover {
-        background: $primary-lighten-1;
-        text-style: none;
-    }
-    
-    PromptPanel #morph-mode-btn:focus {
-        text-style: none;
-    }
-    
-    PromptPanel #morph-mode-btn.active {
-        background: rgb(0,100,0);
-        color: white;
-        border: solid rgb(0,150,0);
-        text-style: none;
-    }
-    
-    PromptPanel #morph-mode-btn.active:hover {
-        background: rgb(0,120,0);
-        color: white;
-        text-style: none;
-    }
-    
-    PromptPanel #morph-mode-btn.active:focus {
-        background: rgb(0,100,0);
-        color: white;
         text-style: none;
     }
     
@@ -196,10 +146,10 @@ class PromptPanel(BasePanel):
     }
     
     /* Prompt queue styles */
-    PromptPanel .prompt-queue-container {
-        height: 1fr;
-        min-height: 5;
-        margin: 0;
+    PromptPanel #queue-container {
+        height: 2;
+        max-height: 2;
+        margin: 0 1;
         padding: 0;
         background: $surface;
         border: solid $primary;
@@ -208,11 +158,11 @@ class PromptPanel(BasePanel):
     
     PromptPanel .prompt-queue-item {
         layout: horizontal;
-        height: 3;
-        padding: 0 1;
+        height: 1;
+        padding: 0 0.5;
         margin: 0;
         background: $panel;
-        border-bottom: solid $primary-darken-2;
+        border-bottom: thin $primary-darken-3;
         align: center middle;
     }
     
@@ -247,7 +197,7 @@ class PromptPanel(BasePanel):
     
     PromptPanel .queue-item-label {
         width: 1fr;
-        padding: 0 1;
+        padding: 0 0.5;
         text-style: normal;
         overflow: hidden ellipsis;
     }
@@ -389,7 +339,6 @@ class PromptPanel(BasePanel):
         
         # State that should survive hot-reload
         self._preserved_state = {
-            'selected_mode': 'develop',
             'prompt_text': '',
             'prompt_history': [],
             'history_index': -1,
@@ -401,62 +350,49 @@ class PromptPanel(BasePanel):
     def compose_content(self) -> ComposeResult:
         """Create the panel layout."""
         # Initialize values if not already set
-        if not hasattr(self, 'selected_mode'):
-            self.selected_mode = "develop"
         if not hasattr(self, 'cost_saver_enabled'):
             self.cost_saver_enabled = False
         if not hasattr(self, 'context_saver_enabled'):
             self.context_saver_enabled = False
         
-        # Main container to fill remaining space
-        with Vertical(classes="prompt-content"):
-            # Prompt input area - takes up most space
-            self.prompt_input = TextArea(id="prompt-input")
-            yield self.prompt_input
+        # Prompt input area - takes up most space
+        self.prompt_input = TextArea(id="prompt-input")
+        yield self.prompt_input
+        
+        # Controls with toggle and action buttons
+        with Horizontal(classes="button-controls"):
+            # Token Saver toggle button with indicator
+            self.cost_saver_btn = Button(
+                "○ Token Saver",
+                id="optimize-btn"
+            )
+            yield self.cost_saver_btn
             
-            # Debug: Log composition
-            logging.debug("Creating controls container")
+            # Context Saver toggle button with indicator
+            self.context_saver_btn = Button(
+                "○ Context Saver",
+                id="context-saver-btn"
+            )
+            yield self.context_saver_btn
             
-            # Controls with toggle and action buttons
-            with Horizontal(classes="button-controls"):
-                # Morph Mode toggle button with indicator
-                self.morph_mode_btn = Button(
-                    "○ Morph Mode",
-                    id="morph-mode-btn"
-                )
-                yield self.morph_mode_btn
-                
-                # Token Saver toggle button with indicator
-                self.cost_saver_btn = Button(
-                    "○ Token Saver",
-                    id="optimize-btn"
-                )
-                yield self.cost_saver_btn
-                
-                # Context Saver toggle button with indicator
-                self.context_saver_btn = Button(
-                    "○ Context Saver",
-                    id="context-saver-btn"
-                )
-                yield self.context_saver_btn
-                
-                # Action buttons
-                yield Button("Clear", id="clear-btn")
-                yield Button("Submit", id="submit-btn")
-                
-                # Clear Queue button (will be shown/hidden dynamically)
-                self.clear_queue_btn = Button("Clear Queue", id="clear-queue-btn", classes="clear-button")
-                self.clear_queue_btn.display = False
-                yield self.clear_queue_btn
-                
-                # Resume Queue button (will be shown/hidden dynamically)
-                self.resume_queue_btn = Button("Resume Queue", id="resume-queue-btn", variant="success")
-                self.resume_queue_btn.display = False
-                yield self.resume_queue_btn
+            # Action buttons
+            yield Button("Clear", id="clear-btn")
+            yield Button("Submit", id="submit-btn")
             
-            # Prompt queue container
-            self.queue_container = ScrollableContainer(id="queue-container", classes="prompt-queue-container")
-            yield self.queue_container
+            # Clear Queue button (will be shown/hidden dynamically)
+            self.clear_queue_btn = Button("Clear Queue", id="clear-queue-btn", classes="clear-button")
+            self.clear_queue_btn.display = False
+            yield self.clear_queue_btn
+            
+            # Resume Queue button (will be shown/hidden dynamically)
+            self.resume_queue_btn = Button("Resume Queue", id="resume-queue-btn", variant="success")
+            self.resume_queue_btn.display = False
+            yield self.resume_queue_btn
+        
+        # Prompt queue container - use regular container with fixed height
+        self.queue_container = Container(id="queue-container")
+        # Height is now set in CSS to 3 lines
+        yield self.queue_container
     
     def on_mount(self) -> None:
         """Initialize the queue display when mounted and set IDs for all widgets."""
@@ -483,9 +419,21 @@ class PromptPanel(BasePanel):
         # Log the widget IDs for debugging
         logging.debug(f"PromptPanel widgets initialized with IDs:")
         logging.debug(f"  - prompt_input: {getattr(self.prompt_input, 'id', 'No ID')}")
-        logging.debug(f"  - morph_mode_btn: {getattr(self.morph_mode_btn, 'id', 'No ID')}")
         logging.debug(f"  - cost_saver_btn: {getattr(self.cost_saver_btn, 'id', 'No ID')}")
         logging.debug(f"  - queue_container: {getattr(self.queue_container, 'id', 'No ID')}")
+        
+        # Schedule layout logging after the layout has been calculated
+        self.set_timer(0.5, self._log_layout_structure)
+        
+        # Force refresh of styles
+        self.refresh()
+        
+        # Programmatically set styles to ensure they're applied
+        if hasattr(self, 'queue_container'):
+            self.queue_container.styles.height = 2
+            self.queue_container.styles.max_height = 2
+        if hasattr(self, 'prompt_input'):
+            self.prompt_input.styles.min_height = 3
         
         # Check if we have a restored queue from previous session
         if self.prompt_queue:
@@ -521,6 +469,24 @@ class PromptPanel(BasePanel):
         if not hasattr(self, '_queue_monitor_task') or self._queue_monitor_task.done():
             self._queue_monitor_task = asyncio.create_task(self._monitor_queue())
         
+    def _log_layout_structure(self) -> None:
+        """Log the layout structure with actual regions."""
+        logging.info("PromptPanel layout structure (after layout):")
+        for i, child in enumerate(self.children):
+            child_id = getattr(child, 'id', 'no-id')
+            child_region = getattr(child, 'region', 'no-region')
+            logging.info(f"  Child {i}: {child.__class__.__name__} id={child_id} region={child_region}")
+            # If it's a container, log its children too
+            if hasattr(child, 'children') and child.__class__.__name__ in ['Container', 'Horizontal', 'Vertical']:
+                for j, subchild in enumerate(child.children):
+                    subchild_id = getattr(subchild, 'id', 'no-id')
+                    subchild_region = getattr(subchild, 'region', 'no-region')
+                    logging.info(f"    Child {i}.{j}: {subchild.__class__.__name__} id={subchild_id} region={subchild_region}")
+        
+        # Log the queue container styles specifically
+        if hasattr(self, 'queue_container'):
+            logging.info(f"Queue container styles: height={self.queue_container.styles.height}, max_height={self.queue_container.styles.max_height}")
+    
     async def _monitor_queue(self) -> None:
         """Monitor the queue and ensure it's processed when Claude is idle."""
         import time
@@ -586,24 +552,6 @@ class PromptPanel(BasePanel):
                 logging.error(f"Queue monitor error: {e}", exc_info=True)
                 await asyncio.sleep(5.0)  # Wait longer on error
             
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        button_id = event.button.id
-        
-        if button_id == "submit-btn":
-            self.submit_prompt()
-        elif button_id == "optimize-btn":
-            self.toggle_cost_saver()
-        elif button_id == "context-saver-btn":
-            self.toggle_context_saver()
-        elif button_id == "clear-btn":
-            self.clear_prompt()
-        elif button_id == "morph-mode-btn":
-            self.toggle_morph_mode()
-        elif button_id == "clear-queue-btn":
-            self.clear_queue()
-        elif button_id == "resume-queue-btn":
-            self.force_process_queue()
     
     def toggle_cost_saver(self) -> None:
         """Toggle cost saver mode."""
@@ -635,28 +583,14 @@ class PromptPanel(BasePanel):
             self.context_saver_btn.remove_class("active")
             self.app.notify("Context Saver: OFF", severity="information")
     
-    def toggle_morph_mode(self) -> None:
-        """Toggle between develop and morph modes."""
-        # Toggle the mode
-        self.selected_mode = "develop" if self.selected_mode == "morph" else "morph"
-        
-        # Update button appearance
-        if self.selected_mode == "morph":
-            self.morph_mode_btn.label = "● Morph Mode"  # Filled circle
-            self.morph_mode_btn.add_class("active")
-            self.app.notify("Morph Mode: ON - Editing the IDE", severity="information")
-            
-            # Widget labels will automatically show in morph mode via hover detection
-        else:
-            self.morph_mode_btn.label = "○ Morph Mode"  # Empty circle
-            self.morph_mode_btn.remove_class("active")
-            self.app.notify("Morph Mode: OFF - Editing current project", severity="information")
-    
-    
             
     def on_key(self, event) -> None:
         """Handle keyboard shortcuts."""
-        if event.key == "ctrl+enter" or event.key == "shift+enter":
+        # Handle Escape to cancel editing
+        if event.key == "escape" and hasattr(self, '_editing_index') and self._editing_index >= 0:
+            self._cancel_edit()
+            event.stop()
+        elif event.key == "ctrl+enter" or event.key == "shift+enter":
             self.submit_prompt()
         elif event.key == "ctrl+o":
             self.toggle_cost_saver()
@@ -675,7 +609,7 @@ class PromptPanel(BasePanel):
             self._update_queue_display()
         elif event.key == "enter" and self.prompt_queue:
             # Edit highlighted item
-            self._edit_queue_item(self.highlighted_queue_index)
+            self._start_editing(self.highlighted_queue_index)
         elif event.key == "ctrl+p":
             # Force process queue
             self.force_process_queue()
@@ -695,11 +629,9 @@ class PromptPanel(BasePanel):
         # Create queue item with simplified structure
         import uuid
         import time
-        mode = getattr(self, 'selected_mode', 'develop')
         queue_item = {
             'id': str(uuid.uuid4()),
             'prompt': prompt,
-            'mode': mode,
             'cost_saver': self.cost_saver_enabled,
             'created_at': time.time(),
         }
@@ -722,11 +654,11 @@ class PromptPanel(BasePanel):
         # Start processor if not running
         self._ensure_processor_running()
         
-    async def _async_submit(self, prompt: str, mode: str) -> None:
+    async def _async_submit(self, prompt: str) -> None:
         """Handle async submission."""
-        await self.on_submit(prompt, mode)
+        await self.on_submit(prompt)
         
-    async def _send_to_terminal(self, prompt: str, mode: str) -> None:
+    async def _send_to_terminal(self, prompt: str) -> None:
         """Send prompt to terminal panel."""
         # Find terminal panel (any panel with send_prompt method)
         terminal = None
@@ -738,7 +670,7 @@ class PromptPanel(BasePanel):
         if terminal and hasattr(terminal, 'send_prompt'):
             try:
                 logging.info(f"Sending prompt to terminal panel: {terminal.__class__.__name__}")
-                await terminal.send_prompt(prompt, mode)
+                await terminal.send_prompt(prompt)
                 logging.info("Prompt sent successfully to terminal")
             except Exception as e:
                 logging.error(f"Error sending prompt to terminal: {e}")
@@ -776,12 +708,11 @@ class PromptPanel(BasePanel):
             optimized = await self._call_optimizer(prompt)
             self.app.notify("Prompt improved!", severity="success")
             
-            # Submit the optimized prompt directly with current mode
-            mode = getattr(self, 'selected_mode', 'develop')
+            # Submit the optimized prompt directly
             if self.on_submit:
-                await self._async_submit(optimized, mode)
+                await self._async_submit(optimized)
             else:
-                await self._send_to_terminal(optimized, mode)
+                await self._send_to_terminal(optimized)
                 
             # Clear input after submission
             self.prompt_input.text = ""
@@ -947,6 +878,13 @@ Output only the enhanced prompt, nothing else."""
         """Get the content that can be copied from this panel."""
         # Return the current prompt text
         return self.prompt_input.text if hasattr(self, 'prompt_input') else ""
+    
+    def set_prompt(self, text: str) -> None:
+        """Set the prompt text programmatically."""
+        if hasattr(self, 'prompt_input'):
+            self.prompt_input.text = text
+            self.prompt_input.focus()
+            logging.info(f"Prompt set: {len(text)} characters")
     
     def on_focus(self, event) -> None:
         """Handle focus event to ensure copy shortcuts work."""
@@ -1275,14 +1213,16 @@ Output only the enhanced prompt, nothing else."""
         super().on_click(event)
         
         # Check if click is on a queue item label
-        target = self.app.get_widget_at(*event.screen_offset)
-        if target and hasattr(target, 'id') and target.id and target.id.startswith('label-'):
-            # Extract index from label ID
-            try:
-                index = int(target.id.split('-')[1])
-                self._start_editing(index)
-            except (ValueError, IndexError):
-                pass
+        widget_info = self.app.get_widget_at(*event.screen_offset)
+        if widget_info:
+            target, _ = widget_info  # Unpack widget and region
+            if target and hasattr(target, 'id') and target.id and target.id.startswith('label-'):
+                # Extract index from label ID
+                try:
+                    index = int(target.id.split('-')[1])
+                    self._start_editing(index)
+                except (ValueError, IndexError):
+                    pass
     
     def _start_editing(self, index: int) -> None:
         """Start in-place editing of a queue item."""
@@ -1312,6 +1252,8 @@ Output only the enhanced prompt, nothing else."""
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
         button_id = event.button.id
+        
+        # Handle queue-specific buttons first
         if button_id and button_id.startswith('save-'):
             try:
                 index = int(button_id.split('-')[1])
@@ -1326,8 +1268,21 @@ Output only the enhanced prompt, nothing else."""
                 self._delete_queue_item(index)
             except (ValueError, IndexError):
                 pass
+        # Handle main panel buttons
+        elif button_id == "submit-btn":
+            self.submit_prompt()
+        elif button_id == "optimize-btn":
+            self.toggle_cost_saver()
+        elif button_id == "context-saver-btn":
+            self.toggle_context_saver()
+        elif button_id == "clear-btn":
+            self.clear_prompt()
+        elif button_id == "clear-queue-btn":
+            self.clear_queue()
+        elif button_id == "resume-queue-btn":
+            self.force_process_queue()
         else:
-            # Pass to parent class for other buttons
+            # Pass to parent class for any other buttons
             super().on_button_pressed(event)
     
     def _delete_queue_item(self, index: int) -> None:
@@ -1355,12 +1310,6 @@ Output only the enhanced prompt, nothing else."""
             except (ValueError, IndexError):
                 pass
     
-    def on_key(self, event: Key) -> None:
-        """Handle key events."""
-        # Handle Escape to cancel editing
-        if event.key == "escape" and self._editing_index >= 0:
-            self._cancel_edit()
-            event.stop()
     
     async def _show_edit_dialog(self, index: int) -> None:
         """Show edit dialog for a queue item."""
@@ -1455,18 +1404,6 @@ Output only the enhanced prompt, nothing else."""
         Args:
             state: Dictionary containing saved panel state
         """
-        # Restore selections
-        if 'selected_mode' in state:
-            self.selected_mode = state['selected_mode']
-            # Update the button appearance if it exists
-            if hasattr(self, 'morph_mode_btn'):
-                if self.selected_mode == 'morph':
-                    self.morph_mode_btn.label = "● Morph Mode"
-                    self.morph_mode_btn.add_class("active")
-                else:
-                    self.morph_mode_btn.label = "○ Morph Mode"
-                    self.morph_mode_btn.remove_class("active")
-        
         # Restore cost saver state
         if 'cost_saver_enabled' in state:
             self.cost_saver_enabled = state['cost_saver_enabled']
@@ -1510,4 +1447,4 @@ Output only the enhanced prompt, nothing else."""
         
         # Queue monitor will be started by on_mount
             
-        logging.info(f"PromptPanel state restored: mode={self.selected_mode}, queue_size={len(self.prompt_queue)}")
+        logging.info(f"PromptPanel state restored: queue_size={len(self.prompt_queue)}")

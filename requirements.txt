@@ -1,11 +1,38 @@
-textual==0.47.1
+# Claude Code Morph Requirements
+# Note: Some packages may have compatibility issues with Python 3.13
+# Recommended: Use Python 3.12 or earlier for best compatibility
+
+# Core UI and terminal packages
+textual==3.5.0
 rich==13.7.0
 pyyaml==6.0.1
+
+# LLM API clients
 groq==0.4.2
 openai==1.12.0
 anthropic==0.18.0
-asyncio==3.4.3
+
+# Async and system utilities
+# asyncio is built into Python 3.4+ - do not install separately
 watchdog==4.0.0
 pyperclip==1.8.2
+
+# Terminal emulation
 pexpect==4.9.0
 pyte==0.8.2
+
+# Vector database and embeddings
+chromadb==0.4.22
+sentence-transformers==2.2.2
+
+# Document processing
+pypdf==3.17.4
+
+# Tokenization (may have issues with Python 3.13)
+# If tiktoken fails, consider using transformers tokenizers instead
+tiktoken==0.5.2
+
+# Build dependencies (install with system package manager):
+# - cmake
+# - pkg-config
+# - gcc/g++ (build-essential on Debian/Ubuntu)

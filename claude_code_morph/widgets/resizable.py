@@ -140,12 +140,16 @@ class ResizableContainer(Container):
     ResizableContainer {
         layout: vertical;
         height: 100%;
+        min-height: 10;
+        width: 100%;
         margin: 0;
         padding: 0;
+        overflow: auto;
     }
     
     ResizableContainer > .panel-wrapper {
         width: 100%;
+        height: 100%;
         overflow: hidden;
         margin: 0;
         padding: 0;
@@ -177,7 +181,7 @@ class ResizableContainer(Container):
         for widget in widgets:
             if isinstance(widget, Widget):
                 # Create a wrapper for the panel
-                wrapper = Container(widget, classes="panel-wrapper")
+                wrapper = Container(classes="panel-wrapper")
                 logging.debug(f"Created wrapper for {widget} with classes {wrapper.classes}")
                 
                 # Add splitter before panel (except for the first one)
@@ -188,19 +192,25 @@ class ResizableContainer(Container):
                     if result:
                         mounted_widgets.extend(result)
                 
-                # Add the panel wrapper
-                self.panels.append(widget)
+                # Mount the wrapper first
                 result = await super().mount(wrapper)
                 if result:
                     mounted_widgets.extend(result)
+                
+                # Now mount the widget inside the wrapper (after wrapper is mounted)
+                await wrapper.mount(widget)
+                
+                # Add to panels list
+                self.panels.append(widget)
         
         # Initialize or update panel sizes when panels change
         if self.panels:
             self._initial_sizes = [1.0 / len(self.panels)] * len(self.panels)
             self.panel_sizes = self._initial_sizes.copy()
+            logging.info(f"ResizableContainer: Set panel sizes to {self.panel_sizes}")
             
-        # Apply initial sizes
-        self._apply_sizes()
+        # Apply initial sizes with a small delay to ensure layout is ready
+        self.call_after_refresh(self._apply_sizes)
         
         return mounted_widgets
         
@@ -262,18 +272,23 @@ class ResizableContainer(Container):
         
     def _apply_sizes(self) -> None:
         """Apply the current panel sizes to the actual widgets."""
+        logging.info(f"_apply_sizes called - panels: {len(self.panels)}, sizes: {self.panel_sizes}")
         if not self.panels or not self.panel_sizes:
+            logging.info("_apply_sizes: No panels or panel_sizes yet - container is empty")
             return
             
         # Get all panel wrappers
         wrappers = self.query(".panel-wrapper")
+        logging.info(f"Found {len(wrappers)} panel wrappers")
         
         for i, (wrapper, size) in enumerate(zip(wrappers, self.panel_sizes)):
-            # Convert fraction to percentage
-            height_percent = int(size * 100)
-            wrapper.styles.height = f"{height_percent}%"
+            # Use fr units for better layout
+            # Each panel gets proportional height based on its size
+            wrapper.styles.height = f"{size:.2f}fr"
             
-            logging.debug(f"Panel {i} height set to {height_percent}% - wrapper: {wrapper}")
+            logging.info(f"Panel {i} height set to {size:.2f}fr - wrapper: {wrapper}")
+            # Force refresh of the wrapper
+            wrapper.refresh(layout=True)
             
     def on_resize(self, event) -> None:
         """Handle container resize events."""

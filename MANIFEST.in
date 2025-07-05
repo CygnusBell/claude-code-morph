@@ -1,6 +1,7 @@
 # Include non-Python files in the package
 include README.md
 include requirements.txt
+include requirements-minimal.txt
 include LICENSE
 recursive-include claude_code_morph/workspaces *.yaml
 recursive-include claude_code_morph/panels *.py
