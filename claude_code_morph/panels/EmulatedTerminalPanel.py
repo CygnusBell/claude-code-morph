@@ -123,6 +123,10 @@ class EmulatedTerminalPanel(BasePanel):
         self._last_update_time = 0
         self._min_update_interval = 0.05  # Minimum 50ms between updates
         
+        # Memory management: limit TextArea buffer size
+        self._max_buffer_lines = 5000  # Limit to 5000 lines to prevent memory issues
+        self._buffer_cleanup_threshold = 4500  # Start cleanup when approaching limit
+        
     def compose_content(self) -> ComposeResult:
         """Create the terminal panel layout."""
         logging.debug("EmulatedTerminalPanel.compose_content called")
@@ -255,6 +259,9 @@ class EmulatedTerminalPanel(BasePanel):
             
             # Process output updates
             asyncio.create_task(self._process_output_queue())
+            
+            # Start periodic memory cleanup
+            asyncio.create_task(self._periodic_memory_cleanup())
             
             self.status.update("Status: [green]Connected[/green]")
             logging.info(f"Claude CLI started successfully with terminal emulation")
@@ -479,6 +486,14 @@ class EmulatedTerminalPanel(BasePanel):
             
             # Only update if content has actually changed
             if screen_content != self._last_displayed_content:
+                # Check if we need to trim the buffer to prevent memory issues
+                content_lines = screen_content.split('\n')
+                if len(content_lines) > self._buffer_cleanup_threshold:
+                    # Keep only the most recent lines
+                    trimmed_lines = content_lines[-self._max_buffer_lines:]
+                    screen_content = '\n'.join(trimmed_lines)
+                    logging.info(f"Trimmed terminal buffer from {len(content_lines)} to {len(trimmed_lines)} lines")
+                
                 # Update TextArea with the new content
                 self.screen_display.load_text(screen_content)
                 self._last_displayed_content = screen_content
@@ -530,6 +545,38 @@ class EmulatedTerminalPanel(BasePanel):
         except Exception as e:
             logging.error(f"Error updating display: {e}")
             
+    async def _periodic_memory_cleanup(self) -> None:
+        """Periodically check and clean up memory to prevent leaks."""
+        while self.running:
+            try:
+                # Wait 30 seconds between cleanups
+                await asyncio.sleep(30)
+                
+                # Check TextArea buffer size
+                if hasattr(self, 'screen_display') and self.screen_display:
+                    current_text = self.screen_display.text
+                    line_count = current_text.count('\n')
+                    
+                    if line_count > self._buffer_cleanup_threshold:
+                        # Force a cleanup by reloading with trimmed content
+                        lines = current_text.split('\n')
+                        trimmed_lines = lines[-self._max_buffer_lines:]
+                        trimmed_content = '\n'.join(trimmed_lines)
+                        
+                        self.screen_display.load_text(trimmed_content)
+                        self._last_displayed_content = trimmed_content
+                        
+                        logging.info(f"Periodic cleanup: Reduced buffer from {line_count} to {len(trimmed_lines)} lines")
+                        
+                # Also clean up pyte screen history if it exists
+                if hasattr(self.terminal_screen, 'history') and len(self.terminal_screen.history) > 1000:
+                    # Keep only recent history
+                    self.terminal_screen.history = self.terminal_screen.history[-1000:]
+                    logging.info("Cleaned up pyte screen history")
+                    
+            except Exception as e:
+                logging.error(f"Error in periodic memory cleanup: {e}")
+                
     def _is_claude_prompt(self, line_text: str, line_index: int, last_lines: List[str]) -> bool:
         """Optimized Claude prompt detection."""
         # Claude shows "Human: " or just "Human:" when ready for input
